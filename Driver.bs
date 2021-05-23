@@ -1,0 +1,58 @@
+package Driver where
+
+import Chess
+import GenCMsg
+import GetPut
+import Connectable
+import COBS
+
+data Command = GetState
+             | GetMoves
+             | Reset
+  deriving (Bits)
+
+data MoveResponse = NextMove Move
+                  | NoMove
+  deriving (Bits)
+
+interface ChessMsgs =
+  command :: Rx 8 2 Command
+  state :: Tx 2 8 State
+  moves :: Tx 8 8 MoveResponse
+
+interface ChessDriver =
+  txData :: Get (Bit 8)
+  rxData :: Put (Bit 8)
+
+mkChessDriver :: (GenCMsg ChessMsgs rxBytes txBytes) => Module ChessDriver
+mkChessDriver = module
+  writeCMsgDecls "chess" (_ :: ChessMsgs)
+
+  enc :: COBSEncoder txBytes <- mkCOBSEncoder
+  dec :: COBSDecoder rxBytes <- mkCOBSDecoder
+  msgMgr :: MsgManager ChessMsgs rxBytes txBytes <- mkMsgManager
+
+  dec.msg <-> dropSize msgMgr.rxMsg
+  msgMgr.txMsg <-> enc.msg
+
+  state :: Reg State <- mkReg initialState
+
+  eval :: StateEval <- mkStateEval
+  rules
+    "get_state": when GetState <- msgMgr.fifos.command.first ==> do
+      msgMgr.fifos.state.enq state
+      msgMgr.fifos.command.deq
+    "get_moves": when GetMoves <- msgMgr.fifos.command.first ==> do
+      eval.putState state
+      msgMgr.fifos.command.deq
+    "get_moves": when Reset <- msgMgr.fifos.command.first ==> do
+      state := initialState
+      msgMgr.fifos.state.enq initialState
+      msgMgr.fifos.command.deq
+
+--    "report_move": when 
+
+  interface
+    txData = enc.byte
+    rxData = dec.byte
+

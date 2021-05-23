@@ -1,0 +1,25 @@
+package SimTop where
+
+import Driver
+import GetPut
+import PTY
+
+{-# verilog sysChessSim #-}
+sysChessSim :: Module Empty
+sysChessSim = module
+  driver <- mkChessDriver
+
+  -- Wait for first byte to be recieved before sending data
+  writeEnable <- mkReg False
+
+  rules
+    "tx": when writeEnable ==> do
+      c <- driver.txData.get
+      txData c
+
+    "rx": when True ==> do
+      c <- rxData
+      if c /= negate 1
+        then do driver.rxData.put $ truncate $ pack c
+                writeEnable := True
+        else noAction

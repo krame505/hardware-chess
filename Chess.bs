@@ -1,0 +1,342 @@
+package Chess where
+
+import Vector
+import GetPut
+import BuildVector
+import FIFO
+
+data PieceKind
+  = Pawn
+  | Knight
+  | Bishop
+  | Rook
+  | Queen
+  | King
+ deriving (Eq, Bits)
+
+data Color = White | Black
+ deriving (Eq, Bits)
+
+struct Piece =
+  color :: Color
+  kind :: PieceKind
+ deriving (Eq, Bits)
+
+type Board = Vector 8 (Vector 8 (Maybe Piece))
+
+struct Position =
+  rank :: UInt 3
+  file :: UInt 3
+ deriving (Eq, Bits)
+
+struct PlayerHistory =
+  pawnMoved2 :: Maybe (UInt 3)
+  kingMoved :: Bool
+  kRookMoved :: Bool
+  qRookMoved :: Bool
+ deriving (Eq, Bits)
+
+struct State =
+  turn :: Color
+  board :: Board
+  whiteHist :: PlayerHistory
+  blackHist :: PlayerHistory
+ deriving (Eq, Bits)
+
+data Move
+  = Move Position Position
+  | Promote PieceKind Position Position
+  | Castle Bool
+ deriving (Eq, Bits)
+
+data Outcome = Win Color | Draw
+ deriving (Eq, Bits)
+
+otherColor :: Color -> Color
+otherColor White = Black
+otherColor Black = White
+
+initialHist :: PlayerHistory
+initialHist = PlayerHistory {
+  pawnMoved2 = Nothing;
+  kingMoved = False;
+  kRookMoved = False;
+  qRookMoved = False;
+}
+
+initialState :: State
+initialState = State {
+  turn = White;
+  board = vec
+    (map (\ k -> Just (Piece {color=Black; kind=k;})) $ vec Rook Knight Bishop Queen King Bishop Knight Rook)
+    (replicate (Just (Piece {color=Black; kind=Pawn;})))
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate (Just (Piece {color=White; kind=Pawn;})))
+    (map (\ k -> Just (Piece {color=White; kind=k;})) $ vec Rook Knight Bishop Queen King Bishop Knight Rook);
+  whiteHist = initialHist;
+  blackHist = initialHist;
+}
+
+selectPos :: Board -> Position -> Maybe Piece
+selectPos b pos = select (select b pos.rank) pos.file
+
+updatePos :: Board -> Position -> Maybe Piece -> Board
+updatePos b pos p = update b pos.file (update (select b pos.file) pos.rank p)
+
+move :: Move -> State -> State
+move (Move from to) s =
+  let p = selectPos s.board from
+  in State {
+    turn = if s.turn == White then Black else White;
+    board = updatePos (updatePos s.board from Nothing) to p;
+    whiteHist = PlayerHistory {
+      pawnMoved2 =
+        if p == Just (Piece {color=White; kind=Pawn;})
+        then if from.rank == 6 && to.rank == 4
+          then Just from.file
+          else Nothing
+        else Nothing;
+      kingMoved = s.whiteHist.kingMoved || p == Just (Piece {color=White; kind=King;});
+      kRookMoved = s.whiteHist.kRookMoved || (p == Just (Piece {color=White; kind=Rook;}) && from.rank == 7 && from.file == 7);
+      qRookMoved = s.whiteHist.qRookMoved || (p == Just (Piece {color=White; kind=Rook;}) && from.rank == 7 && from.file == 0);
+    };
+    blackHist = PlayerHistory {
+      pawnMoved2 =
+        if p == Just (Piece {color=Black; kind=Pawn;})
+        then if from.rank == 1 && to.rank == 3
+          then Just from.file
+          else Nothing
+        else Nothing;
+      kingMoved = s.blackHist.kingMoved || p == Just (Piece {color=Black; kind=King;});
+      kRookMoved = s.blackHist.kRookMoved || (p == Just (Piece {color=Black; kind=Rook;}) && from.rank == 0 && from.file == 7);
+      qRookMoved = s.blackHist.qRookMoved || (p == Just (Piece {color=Black; kind=Rook;}) && from.rank == 0 && from.file == 0);
+    };
+  }
+move (Promote newKind from to) s =
+  State {
+    turn = if s.turn == White then Black else White;
+    board = updatePos (updatePos s.board from Nothing) to $ Just $ Piece {color=s.turn; kind=newKind;};
+    whiteHist = PlayerHistory {
+      pawnMoved2 = Nothing;
+      kingMoved = s.whiteHist.kingMoved;
+      kRookMoved = s.whiteHist.kRookMoved;
+      qRookMoved = s.whiteHist.qRookMoved;
+    };
+    blackHist = PlayerHistory {
+      pawnMoved2 = Nothing;
+      kingMoved = s.blackHist.kingMoved;
+      kRookMoved = s.blackHist.kRookMoved;
+      qRookMoved = s.blackHist.qRookMoved;
+    };
+  }
+move (Castle kingSide) s =
+  State {
+    turn = if s.turn == White then Black else White;
+    board =
+      let rank = if s.turn == White then 7 else 0
+          kingFile = 4
+          rookFile = if kingSide then 7 else 0
+          newKingFile = if kingSide then 6 else 2
+          newRookFile = if kingSide then 5 else 3
+      in updatePos (updatePos (updatePos (updatePos s.board (Position {rank=rank; file=kingFile;}) Nothing) (Position {rank=rank; file=rookFile;}) Nothing) (Position {rank=rank; file=newKingFile;}) (Just $ Piece {color=s.turn; kind=King})) (Position {rank=rank; file=newRookFile;}) $ Just $ Piece {color=s.turn; kind=Rook};
+    whiteHist = PlayerHistory {
+      pawnMoved2 = Nothing;
+      kingMoved = s.whiteHist.kingMoved || s.turn == White;
+      kRookMoved = s.whiteHist.kRookMoved || (s.turn == White && kingSide);
+      qRookMoved = s.whiteHist.qRookMoved || (s.turn == White && not kingSide);
+    };
+    blackHist = PlayerHistory {
+      pawnMoved2 = Nothing;
+      kingMoved = s.blackHist.kingMoved || s.turn == Black;
+      kRookMoved = s.blackHist.kRookMoved || (s.turn == Black && kingSide);
+      qRookMoved = s.blackHist.qRookMoved || (s.turn == Black && not kingSide);
+    };
+  }
+
+dispInBounds :: Position -> (Integer, Integer) -> Bool
+dispInBounds pos (x, y) =
+  (if x > 0 then pos.rank <= 7 - fromInteger x else pos.rank >= fromInteger (negate x)) &&
+  (if y > 0 then pos.file <= 7 - fromInteger y else pos.file >= fromInteger (negate y))
+
+dispPos :: Position -> (Integer, Integer) -> Position
+dispPos pos (x, y) = Position {rank=pos.rank + fromInteger x; file=pos.file + fromInteger y;}
+
+trace :: Board -> Position -> (Integer -> (Integer, Integer)) -> Maybe Piece
+trace board pos disp =
+  foldr
+    (\ i res ->
+       let (x, y) = disp (fromInteger i)
+       in
+         if dispInBounds pos (x, y)
+         then
+           case selectPos board (Position {rank=pos.rank + fromInteger x; file=pos.file + fromInteger y;}) of
+             Just p -> Just p
+             Nothing -> res
+         else Nothing)
+    Nothing (genVector :: Vector 7 Integer)
+
+kingMoves :: Vector 8 (Integer, Integer)
+kingMoves = vec (negate 1, 1) (0, 1) (1, 1) (negate 1, 0) (1, 0) (negate 1, negate 1) (0, negate 1) (1, negate 1)
+
+knightMoves :: Vector 8 (Integer, Integer)
+knightMoves = vec (1, 3) (1, negate 3) (3, 1) (3, negate 1) (negate 1, 3) (negate 1, negate 3) (negate 3, 1) (negate 3, negate 1)
+
+rankFileDisps :: Vector 4 (Integer -> (Integer, Integer))
+rankFileDisps = vec (\ i -> (0, i + 1)) (\ i -> (0, negate i - 1)) (\ i -> (i + 1, 0)) (\ i -> (negate i - 1, 0))
+
+diagonalDisps :: Vector 4 (Integer -> (Integer, Integer))
+diagonalDisps = vec (\ i -> (i + 1, i + 1)) (\ i -> (i + 1, negate i - 1)) (\ i -> (negate i - 1, i + 1)) (\ i -> (negate i - 1, negate i - 1))
+
+isThreatened :: Board -> Color -> Position -> Bool
+isThreatened board player pos =
+  let pawnInvMoves :: Vector 2 (Integer, Integer) =
+        case player of
+          White -> vec (1, 1) (1, negate 1)
+          Black -> vec (negate 1, 1) (negate 1, negate 1)
+      traceRankFile = map (trace board pos) rankFileDisps
+      traceDiagonal = map (trace board pos) diagonalDisps
+  in
+    any (\ d -> dispInBounds pos d && selectPos board (dispPos pos d) == Just (Piece {color=otherColor player; kind=Pawn;})) pawnInvMoves ||
+    any (\ d -> dispInBounds pos d && selectPos board (dispPos pos d) == Just (Piece {color=otherColor player; kind=King;})) kingMoves ||
+    any (\ d -> dispInBounds pos d && selectPos board (dispPos pos d) == Just (Piece {color=otherColor player; kind=Knight;})) knightMoves ||
+    any ((==) (Just (Piece {color=otherColor player; kind=Queen;}))) traceRankFile ||
+    any ((==) (Just (Piece {color=otherColor player; kind=Rook;}))) traceRankFile ||
+    any ((==) (Just (Piece {color=otherColor player; kind=Queen;}))) traceDiagonal ||
+    any ((==) (Just (Piece {color=otherColor player; kind=Bishop;}))) traceDiagonal
+
+kingPos :: Board -> Color -> Position
+kingPos board player =
+  let combine :: (Integer, Maybe (UInt 3)) -> Position -> Position
+      combine (rank, f) rest =
+        case f of
+          Just file -> Position {rank=fromInteger rank; file=file;}
+          Nothing -> rest
+  in foldr combine (Position {rank=0; file=0;}) $ zip genVector $ map (findElem (Just (Piece {color=player; kind=King;}))) board
+
+inCheck :: Board -> Color -> Bool
+inCheck board player = isThreatened board player $ kingPos board player
+
+promoKinds :: Vector 4 PieceKind
+promoKinds = vec Knight Bishop Rook Queen
+
+interface MoveRule =
+  moveRules :: (Move -> Action) -> Rules
+  finished :: Bool
+  reset :: Action
+
+mkMoveRule :: String -> Bool -> Move -> Module MoveRule
+mkMoveRule name cond m = module
+  done <- mkReg False
+  interface
+    moveRules enq =
+      rules
+        name: when cond && not done ==> do
+          enq m
+          done := True
+    finished = done || not cond
+    reset = done := False
+
+joinMoveRule :: MoveRule -> MoveRule -> MoveRule
+joinMoveRule m1 m2 =
+  interface MoveRule
+    moveRules enq = m1.moveRules enq <+ m2.moveRules enq
+    finished = m1.finished && m2.finished
+    reset = do m1.reset
+               m2.reset
+
+interface StateEval =
+  putState :: State -> Action
+  --inCheck :: Bool
+  finished :: Bool
+  moves :: Get Move
+
+{-# verilog mkStateEval #-}
+mkStateEval :: Module StateEval
+mkStateEval = module
+  state :: Reg State <- mkReg _
+  moves :: FIFO Move <- mkFIFO
+  let board = state.board
+      turn = state.turn
+      hist = if turn == White then state.whiteHist else state.blackHist
+
+  evalPos <- mkReg $ Position {rank=0; file=0;}
+  let evalPiece = selectPos board evalPos
+      evalPieceIs kind = evalPiece == Just (Piece {color=turn; kind=kind;})
+
+      nextFile =
+        foldr (\ f rest ->
+                 let file = fromInteger f + 1
+                 in
+                   if file > evalPos.file
+                   then case selectPos board $ Position {rank=evalPos.rank; file=file;} of
+                          Just piece -> if piece.color == turn then Just $ fromInteger file else rest
+                          Nothing -> rest
+                   else rest
+              ) Nothing (genVector :: Vector 7 Integer)
+
+  let pawnDirection = if turn == White then (-) else (+)
+      homeRank = if turn == White then 7 else 0
+      pawnHomeRank = if turn == White then 6 else 1
+      enPassantRank = if turn == White then 2 else 5
+      promoRank = if turn == White then 0 else 7
+
+      open :: Position -> Bool
+      open pos =
+        case selectPos board pos of
+          Just _ -> False
+          Nothing -> True
+
+      capturable :: Position -> Bool
+      capturable pos =
+        case selectPos board pos of
+          Just p -> p.color /= turn
+          Nothing -> False
+
+      moveRules =
+        concat (map (\ kind -> vec
+          (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
+           in mkMoveRule "pawn_promo" (evalPieceIs Pawn && pos.rank == promoRank && open pos) $ Promote kind evalPos pos)
+          (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file - 1}
+           in mkMoveRule "pawn_promo_capture_left" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file > 0 && capturable pos) $ Promote kind evalPos pos)
+          (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
+           in mkMoveRule "pawn_promo_capture_right" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file < 7 && capturable pos) $ Promote kind evalPos pos)) promoKinds)
+        `append` vec
+        (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
+         in mkMoveRule "pawn_advance" (evalPieceIs Pawn && pos.rank /= promoRank && open pos) $ Move evalPos pos)
+        (let pos1 = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
+             pos2 = Position {rank=evalPos.rank `pawnDirection` 2; file=evalPos.file}
+         in mkMoveRule "pawn_advance_2" (evalPieceIs Pawn && evalPos.rank == pawnHomeRank && open pos1 && open pos2) $ Move evalPos pos2)
+        (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file - 1}
+         in mkMoveRule "pawn_capture_left" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+        (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
+         in mkMoveRule "pawn_capture_right" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file < 7 && capturable pos) $ Move evalPos pos)
+        (let pos = Position {rank=evalPos.rank; file=evalPos.file - 1}
+         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+        (let pos = Position {rank=evalPos.rank; file=evalPos.file + 1}
+         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+
+  moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
+
+  addRules $
+    moveEval.moveRules moves.enq <+
+    rules
+      when moveEval.finished
+        rules
+          "next_file": when Just file <- nextFile ==>
+            evalPos := Position {rank=evalPos.rank; file=file;}
+          "next_rank": when Nothing <- nextFile, evalPos.rank < 7 ==>
+            evalPos := Position {rank = evalPos.rank + 1; file = 0;}
+
+  let putState s = do state := s
+                      evalPos := Position {rank = 0; file = 0;}
+                      moveEval.reset
+      finished = moveEval.finished && not (isJust nextFile) && evalPos.rank == 7
+
+  interface
+    putState = putState  when finished
+    finished = finished
+    moves = toGet moves
+
