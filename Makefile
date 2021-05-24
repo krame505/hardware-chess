@@ -12,7 +12,7 @@ rtl: | contrib
 	bsc $(BSCFLAGS) -u -verilog HwTop.bs
 
 ffi: | rtl
-	python3 build_ffi.py "chess"
+	python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py "chess"
 
 sim: | contrib
 	bsc $(BSCFLAGS) -u -sim SimTop.bs

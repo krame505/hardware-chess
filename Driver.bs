@@ -11,10 +11,6 @@ data Command = GetState
              | Reset
   deriving (Bits)
 
-data MoveResponse = NextMove Move
-                  | NoMove
-  deriving (Bits)
-
 interface ChessMsgs =
   command :: Rx 8 2 Command
   state :: Tx 2 8 State
@@ -38,19 +34,19 @@ mkChessDriver = module
   state :: Reg State <- mkReg initialState
 
   eval :: StateEval <- mkStateEval
+  eval.moves <-> toPut msgMgr.fifos.moves
+
   rules
     "get_state": when GetState <- msgMgr.fifos.command.first ==> do
       msgMgr.fifos.state.enq state
       msgMgr.fifos.command.deq
     "get_moves": when GetMoves <- msgMgr.fifos.command.first ==> do
-      eval.putState state
+      eval.state.put state
       msgMgr.fifos.command.deq
-    "get_moves": when Reset <- msgMgr.fifos.command.first ==> do
+    "reset": when Reset <- msgMgr.fifos.command.first ==> do
       state := initialState
       msgMgr.fifos.state.enq initialState
       msgMgr.fifos.command.deq
-
---    "report_move": when 
 
   interface
     txData = enc.byte

@@ -275,18 +275,22 @@ joinMoveRule m1 m2 =
     reset = do m1.reset
                m2.reset
 
+data MoveResponse = NextMove Move
+                  | NoMove
+  deriving (Bits)
+
 interface StateEval =
-  putState :: State -> Action
+  state :: Put State
   --inCheck :: Bool
-  finished :: Bool
-  moves :: Get Move
+  moves :: Get MoveResponse
 
 {-# verilog mkStateEval #-}
 mkStateEval :: Module StateEval
 mkStateEval = module
-  state :: Reg State <- mkReg _
-  moves :: FIFO Move <- mkFIFO
-  let board = state.board
+  states :: FIFO State <- mkFIFO
+  moves :: FIFO MoveResponse <- mkFIFO
+  let state = states.first
+      board = state.board
       turn = state.turn
       hist = if turn == White then state.whiteHist else state.blackHist
 
@@ -349,22 +353,23 @@ mkStateEval = module
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
   addRules $
-    moveEval.moveRules moves.enq <+
+    moveEval.moveRules (moves.enq `compose` NextMove) <+
     rules
       when moveEval.finished
         rules
           "next_file": when Just file <- nextFile ==>
             evalPos := Position {rank=evalPos.rank; file=file;}
-          "next_rank": when Nothing <- nextFile, evalPos.rank < 7 ==>
-            evalPos := Position {rank = evalPos.rank + 1; file = 0;}
-
-  let putState s = do state := s
-                      evalPos := Position {rank = 0; file = 0;}
-                      moveEval.reset
-      finished = moveEval.finished && not (isJust nextFile) && evalPos.rank == 7
+          when Nothing <- nextFile
+            rules
+              "next_rank": when evalPos.rank < 7 ==>
+                evalPos := Position {rank = evalPos.rank + 1; file = 0;}
+              "reset": when evalPos.rank == 7 ==> do
+                evalPos := Position {rank = 0; file = 0;}
+                moveEval.reset
+                moves.enq NoMove
+                states.deq
 
   interface
-    putState = putState  when finished
-    finished = finished
+    state = toPut states
     moves = toGet moves
 
