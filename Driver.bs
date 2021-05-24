@@ -51,4 +51,3 @@ mkChessDriver = module
   interface
     txData = enc.byte
     rxData = dec.byte
-
