@@ -1,12 +1,12 @@
-BSCCONTRIB ?=../bsc-contrib
-BSCFLAGS=-p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
+BSCCONTRIB?=../bsc-contrib
+override BSCFLAGS+=-p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
 
 all: rtl sim ffi
 
 contrib:
-	$(MAKE) -C $(BSCCONTRIB)/Libraries/GenC install
-	$(MAKE) -C $(BSCCONTRIB)/Libraries/COBS install
-	$(MAKE) -C $(BSCCONTRIB)/Libraries/FPGA/Misc install
+	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/GenC install
+	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/COBS install
+	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/FPGA/Misc install
 
 rtl: | contrib
 	bsc $(BSCFLAGS) -u -verilog HwTop.bs
