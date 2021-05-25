@@ -16,12 +16,12 @@ $(BUILDDIR):
 rtl: | contrib $(BUILDDIR)
 	bsc $(BSCFLAGS) -u -verilog HwTop.bs
 
-ffi: | rtl $(BUILDDIR)
-	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py "chess"
-
 sim: | contrib $(BUILDDIR)
 	bsc $(BSCFLAGS) -u -sim SimTop.bs
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
+
+ffi: | sim $(BUILDDIR)
+	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py "chess"
 
 clean:
 	rm -rf *~ *.h *.o *.so *.cxx *.v *.out bin/ __pycache__/
