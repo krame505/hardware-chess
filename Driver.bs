@@ -2,18 +2,20 @@ package Driver where
 
 import Chess
 import GenCMsg
+import GenCRepr
 import GetPut
 import Connectable
 import COBS
+import CShow
 
 data Command = GetState
              | Reset
   deriving (Bits)
 
 interface ChessMsgs =
-  command :: Rx 8 2 Command
-  state :: Tx 2 8 State
-  moves :: Tx 8 8 MoveResponse
+  command :: Rx 2 2 Command
+  state :: Tx 2 2 State
+  moves :: Tx 64 8 MoveResponse
 
 interface ChessDriver =
   txData :: Get (Bit 8)
@@ -41,7 +43,8 @@ mkChessDriver = module
             case msgMgr.fifos.command.first of
               GetState -> state
               Reset -> initialState
-      eval.state.put state
+      state := newState
+      eval.state.put newState
       msgMgr.fifos.state.enq newState
       msgMgr.fifos.command.deq
 
