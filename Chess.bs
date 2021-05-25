@@ -47,9 +47,9 @@ struct State =
  deriving (Eq, Bits)
 
 data Move
-  = Move Position Position
-  | Promote PieceKind Position Position
-  | Castle Bool
+  = Move { from :: Position; to :: Position }
+  | Promote { kind :: PieceKind; from :: Position; to :: Position }
+  | Castle {kingSide :: Bool}
  deriving (Eq, Bits)
 
 data Outcome = Win Color | Draw
@@ -115,7 +115,7 @@ updatePos :: Board -> Position -> Maybe Piece -> Board
 updatePos b pos p = update b pos.file (update (select b pos.file) pos.rank p)
 
 move :: Move -> State -> State
-move (Move from to) s =
+move (Move {from; to;} ) s =
   let p = selectPos s.board from
   in State {
     turn = if s.turn == White then Black else White;
@@ -143,7 +143,7 @@ move (Move from to) s =
       qRookMoved = s.blackHist.qRookMoved || (p == Just (Piece {color=Black; kind=Rook;}) && from.rank == 0 && from.file == 0);
     };
   }
-move (Promote newKind from to) s =
+move (Promote {kind=newKind; from; to;}) s =
   State {
     turn = if s.turn == White then Black else White;
     board = updatePos (updatePos s.board from Nothing) to $ Just $ Piece {color=s.turn; kind=newKind;};
@@ -160,7 +160,7 @@ move (Promote newKind from to) s =
       qRookMoved = s.blackHist.qRookMoved;
     };
   }
-move (Castle kingSide) s =
+move (Castle {kingSide}) s =
   State {
     turn = if s.turn == White then Black else White;
     board =
@@ -330,25 +330,25 @@ mkStateEval = module
       moveRules =
         concat (map (\ kind -> vec
           (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
-           in mkMoveRule "pawn_promo" (evalPieceIs Pawn && pos.rank == promoRank && open pos) $ Promote kind evalPos pos)
+           in mkMoveRule "pawn_promo" (evalPieceIs Pawn && pos.rank == promoRank && open pos) $ Promote {kind=kind; from=evalPos; to=pos;})
           (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file - 1}
-           in mkMoveRule "pawn_promo_capture_left" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file > 0 && capturable pos) $ Promote kind evalPos pos)
+           in mkMoveRule "pawn_promo_capture_left" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file > 0 && capturable pos) $ Promote {kind=kind; from=evalPos; to=pos;})
           (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
-           in mkMoveRule "pawn_promo_capture_right" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file < 7 && capturable pos) $ Promote kind evalPos pos)) promoKinds)
+           in mkMoveRule "pawn_promo_capture_right" (evalPieceIs Pawn && pos.rank == promoRank && evalPos.file < 7 && capturable pos) $ Promote {kind=kind; from=evalPos; to=pos;})) promoKinds)
         `append` vec
         (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
-         in mkMoveRule "pawn_advance" (evalPieceIs Pawn && pos.rank /= promoRank && open pos) $ Move evalPos pos)
+         in mkMoveRule "pawn_advance" (evalPieceIs Pawn && pos.rank /= promoRank && open pos) $ Move {from=evalPos; to=pos;})
         (let pos1 = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file}
              pos2 = Position {rank=evalPos.rank `pawnDirection` 2; file=evalPos.file}
-         in mkMoveRule "pawn_advance_2" (evalPieceIs Pawn && evalPos.rank == pawnHomeRank && open pos1 && open pos2) $ Move evalPos pos2)
+         in mkMoveRule "pawn_advance_2" (evalPieceIs Pawn && evalPos.rank == pawnHomeRank && open pos1 && open pos2) $ Move {from=evalPos; to=pos2;})
         (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file - 1}
-         in mkMoveRule "pawn_capture_left" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+         in mkMoveRule "pawn_capture_left" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
-         in mkMoveRule "pawn_capture_right" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file < 7 && capturable pos) $ Move evalPos pos)
+         in mkMoveRule "pawn_capture_right" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file < 7 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank; file=evalPos.file - 1}
-         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank; file=evalPos.file + 1}
-         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move evalPos pos)
+         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
 
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
