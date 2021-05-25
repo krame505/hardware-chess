@@ -7,7 +7,6 @@ import Connectable
 import COBS
 
 data Command = GetState
-             | GetMoves
              | Reset
   deriving (Bits)
 
@@ -37,15 +36,13 @@ mkChessDriver = module
   eval.moves <-> toPut msgMgr.fifos.moves
 
   rules
-    "get_state": when GetState <- msgMgr.fifos.command.first ==> do
-      msgMgr.fifos.state.enq state
-      msgMgr.fifos.command.deq
-    "get_moves": when GetMoves <- msgMgr.fifos.command.first ==> do
+    "handle_command": when True ==> do
+      let newState =
+            case msgMgr.fifos.command.first of
+              GetState -> state
+              Reset -> initialState
       eval.state.put state
-      msgMgr.fifos.command.deq
-    "reset": when Reset <- msgMgr.fifos.command.first ==> do
-      state := initialState
-      msgMgr.fifos.state.enq initialState
+      msgMgr.fifos.state.enq newState
       msgMgr.fifos.command.deq
 
   interface
