@@ -7,6 +7,7 @@ import BuildVector
 import FIFO
 import GenCRepr
 import qualified State
+import CShow
 
 data PieceKind
   = Pawn
@@ -262,6 +263,7 @@ mkMoveRule name cond m = module
     moveRules enq =
       rules
         name: when cond && not done ==> do
+          $display "move " (cshow m)
           enq m
           done := True
     finished = done || not cond
@@ -357,13 +359,18 @@ mkStateEval = module
     rules
       when moveEval.finished
         rules
-          "next_file": when Just file <- nextFile ==>
+          "next_file": when Just file <- nextFile ==> do
+            $display "next_file " file
             evalPos := Position {rank=evalPos.rank; file=file;}
+            moveEval.reset
           when Nothing <- nextFile
             rules
-              "next_rank": when evalPos.rank < 7 ==>
+              "next_rank": when evalPos.rank < 7 ==> do
+                $display "next_rank " (evalPos.rank + 1)
                 evalPos := Position {rank = evalPos.rank + 1; file = 0;}
+                moveEval.reset
               "reset": when evalPos.rank == 7 ==> do
+                $display "reset"
                 evalPos := Position {rank = 0; file = 0;}
                 moveEval.reset
                 moves.enq NoMove

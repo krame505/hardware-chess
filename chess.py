@@ -45,13 +45,11 @@ class ChessClient(msgclient.Client):
     def notify(self):
         updated = False
         while state := self.get("state"):
-            print("Got state", state)
             self.state = state
             updated = True
         while move := self.get("moves"):
-            print("Got move", move)
             if move.tag == lib.MoveResponse_NextMove:
-                self._movesAccum.append(move.contents.NextMove)
+                self._movesAccum.append(ffi.new("Move *", move.contents.NextMove)[0])
             elif move.tag == lib.MoveResponse_NoMove:
                 self.moves = self._movesAccum
                 self._movesAccum = []
