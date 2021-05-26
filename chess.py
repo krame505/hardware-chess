@@ -29,6 +29,31 @@ def cdata_dict(cd, ty=None):
     else:
         raise ValueError("C type {} cannot be converted to dict representation".format(ty.cname))
 
+whitePieces = {'King': '♔', 'Queen': '♕', 'Rook': '♖', 'Bishop': '♗', 'Knight': '♘', 'Pawn': '♙'}
+blackPieces = {'King': '♚', 'Queen': '♛', 'Rook': '♜', 'Bishop': '♝', 'Knight': '♞', 'Pawn': '♟'}
+
+def strPiece(p):
+    pieceName = ffi.string(ffi.cast('enum PieceKind_tag', p.kind.tag))[len('PieceKind_'):]
+    return (whitePieces if p.color.tag == lib.Color_White else blackPieces)[pieceName]
+
+def strPosition(pos):
+    return chr(ord('a') + pos.file) + str(8 - pos.rank)
+
+def strMove(state, move):
+    if move.tag == lib.Move_Move or move.tag == lib.Move_Promote:
+        directMove = move.contents.Move if move.tag == lib.Move_Move else move.contents.Promote
+        fromPos = getattr(directMove, 'from')
+        toPos = directMove.to
+        fromSquare = state.board[fromPos.rank][fromPos.file]
+        toSquare = state.board[toPos.rank][toPos.file]
+        assert fromSquare.occupied
+        assert fromSquare.piece.color.tag == state.turn.tag
+        capture = toSquare.occupied
+        promo = strPiece(ffi.new("Piece *", {'color': fromSquare.piece.color, 'kind': directMove.kind})) if move.tag == lib.Move_Promote else ""
+        return strPiece(fromSquare.piece) + strPosition(fromPos) + ("x" if capture else "-") + strPosition(toPos) + promo
+    elif move.tag == lib.Move_Castle:
+        return "0-0" if move.contents.Castle.kingSide else "0-0-0"
+
 class ChessClient(msgclient.Client):
     def __init__(self, serial, callback):
         super().__init__("ChessMsgs", ffi, lib, serial)
@@ -60,7 +85,7 @@ class ChessClient(msgclient.Client):
             return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
 
     def move(self, i):
-        self.event = "Move " + str(i)
+        self.event = strMove(self.state, self.moves[i])
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
 
     def reset(self):
