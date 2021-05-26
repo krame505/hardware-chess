@@ -38,6 +38,11 @@ def move(i):
     client.move(int(i))
     return ""
 
+@app.route("/reset")
+def reset():
+    client.reset()
+    return ""
+
 @app.route("/events")
 def events():
     def eventStream():

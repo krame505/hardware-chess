@@ -12,7 +12,6 @@ events.onerror = function() {
 function init() {
   update()
 }
-
 function pieceChar(kind) {
   if (kind == 'King') return '♚'
   else if (kind == 'Queen') return '♛'
@@ -89,6 +88,10 @@ function update() {
 
 function doMove(i) {
   $.ajax({url: "move/" + i})
+}
+
+function reset() {
+  $.ajax({url: "reset"})
 }
 
 var selected = null
