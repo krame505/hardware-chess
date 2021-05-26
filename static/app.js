@@ -48,7 +48,6 @@ function update() {
       console.log("Got status", s)
       state = s.state
       moves = s.moves
-      console.log(moves)
 
       turn.innerHTML = state.turn + "'s turn"
       
@@ -90,7 +89,6 @@ function update() {
 
 function doMove(i) {
   $.ajax({url: "move/" + i})
-  console.log(events.readyState)
 }
 
 var selected = null
@@ -123,7 +121,6 @@ function handleSelect(pos) {
         narrowed.push(i)
       }
     })
-    console.log("narrowed", narrowed)
     if (narrowed.length > 0 && moves[narrowed[0]].tag == 'Promote') {
       var promoKind = prompt("Enter kind of promoted piece", "Queen")
       narrowed = narrowed.filter(move => promoKind != null && moves[move].contents.kind.toLowerCase() == promoKind.toLowerCase())

@@ -56,7 +56,8 @@ class ChessClient(msgclient.Client):
                 self.callback(self.event)
 
     def jsonStatus(self):
-        return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
+        if self.state:
+            return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
 
     def move(self, i):
         self.event = "Move " + str(i)

@@ -28,7 +28,10 @@ def index():
 
 @app.route("/status.json")
 def status():
-    return client.jsonStatus()
+    if s := client.jsonStatus():
+        return s
+    else:
+        return Response(status=503)
 
 @app.route("/move/<i>")
 def move(i):
