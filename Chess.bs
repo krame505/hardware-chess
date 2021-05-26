@@ -294,6 +294,7 @@ mkStateEval = module
       board = state.board
       turn = state.turn
       hist = if turn == White then state.whiteHist else state.blackHist
+      otherHist = if turn == Black then state.whiteHist else state.blackHist
 
   evalPos <- mkReg $ Position {rank=0; file=0;}
   let evalPiece = selectPos board evalPos
@@ -313,7 +314,7 @@ mkStateEval = module
   let pawnDirection = if turn == White then (-) else (+)
       homeRank = if turn == White then 7 else 0
       pawnHomeRank = if turn == White then 6 else 1
-      enPassantRank = if turn == White then 2 else 5
+      enPassantRank = if turn == White then 3 else 4
       promoRank = if turn == White then 0 else 7
 
       open :: Position -> Bool
@@ -347,9 +348,9 @@ mkStateEval = module
         (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
          in mkMoveRule "pawn_capture_right" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file < 7 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank; file=evalPos.file - 1}
-         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
+         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && otherHist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank; file=evalPos.file + 1}
-         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && hist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
+         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && otherHist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
 
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
