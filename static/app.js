@@ -1,4 +1,18 @@
 
+var events = new EventSource('/events')
+events.onmessage = function (e) {
+  console.log("Got event", e)
+  lastEvent.innerHTML = e.data
+  update()
+}
+events.onerror = function() {
+  console.log("EventSource failed.");
+};
+
+function init() {
+  update()
+}
+
 function pieceChar(kind) {
   if (kind == 'King') return '♚'
   else if (kind == 'Queen') return '♛'
@@ -28,7 +42,7 @@ function moveTo(move) {
 }
 
 function update() {
-  $.ajax({url: `status.json`, cache: false, timeout: 3000}).done(
+  $.ajax({url: "status.json", cache: false, timeout: 3000}).done(
     function (json) {
       s = JSON.parse(json)
       console.log("Got status", s)
@@ -75,7 +89,8 @@ function update() {
 }
 
 function doMove(i) {
-  console.log("Move", i)
+  $.ajax({url: "move/" + i})
+  console.log(events.readyState)
 }
 
 var selected = null
@@ -108,24 +123,14 @@ function handleSelect(pos) {
         narrowed.push(i)
       }
     })
-    if (narrowed.length > 0 && narrowed[0].tag == 'Promote') {
+    console.log("narrowed", narrowed)
+    if (narrowed.length > 0 && moves[narrowed[0]].tag == 'Promote') {
       var promoKind = prompt("Enter kind of promoted piece", "Queen")
-      narrowed = narrowed.filter(move => promoKind != null && move.contents.kind.toLowerCase() == promoKind.toLowerCase())
+      narrowed = narrowed.filter(move => promoKind != null && moves[move].contents.kind.toLowerCase() == promoKind.toLowerCase())
     }
     if (narrowed.length > 0) {
       doMove(narrowed[0])
-      selected = null
     }
+    selected = null
   }
-}
-
-var events = new EventSource('/events')
-events.onmessage = function (e) {
-  console.log("Got event", e)
-  event.innerHTML = e
-  update()
-}
-
-function init() {
-  update()
 }

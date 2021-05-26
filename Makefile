@@ -2,6 +2,7 @@ BSCCONTRIB ?= $(abspath ../bsc-contrib)
 BUILDDIR ?= bin
 override BSCFLAGS += -p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
 override BSCFLAGS += -bdir $(BUILDDIR) -fdir $(BUILDDIR)
+override BSCFLAGS += +RTS -K1G -RTS
 
 all: rtl sim ffi
 

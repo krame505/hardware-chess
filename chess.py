@@ -58,6 +58,10 @@ class ChessClient(msgclient.Client):
     def jsonStatus(self):
         return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
 
+    def move(self, i):
+        self.event = "Move " + str(i)
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
+
     def reset(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
         self.event = "Game reset"

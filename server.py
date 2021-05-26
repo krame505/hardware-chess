@@ -10,9 +10,12 @@ if len(sys.argv) <= 1:
 
 ser = serial.Serial(sys.argv[1], 115200)
 
-eventQueue = queue.Queue()
+eventQueues = []
+def putEvent(e):
+    for q in eventQueues:
+        q.put(e)
 
-client = chess.ChessClient(ser, eventQueue.put)
+client = chess.ChessClient(ser, putEvent)
 client.start()
 
 from flask import Flask, render_template, redirect, Response
@@ -27,12 +30,20 @@ def index():
 def status():
     return client.jsonStatus()
 
+@app.route("/move/<i>")
+def move(i):
+    client.move(int(i))
+    return ""
+
 @app.route("/events")
 def events():
     def eventStream():
+        eventQueue = queue.Queue()
+        eventQueues.append(eventQueue)
         while True:
             # wait for event to be available, then push it
-            yield 'data: {}\n\n'.format(eventQueue.get())
+            event = eventQueue.get()
+            yield 'data: {}\n\n'.format(event)
     return Response(eventStream(), mimetype="text/event-stream")
 
 if __name__ == "__main__":

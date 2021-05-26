@@ -9,6 +9,7 @@ import COBS
 import CShow
 
 data Command = GetState
+             | Move Move
              | Reset
   deriving (Bits)
 
@@ -33,20 +34,25 @@ mkChessDriver = module
   msgMgr.txMsg <-> enc.msg
 
   state :: Reg State <- mkReg initialState
+  stateUpdate :: RWire State <- mkRWire
 
   eval :: StateEval <- mkStateEval
   eval.moves <-> toPut msgMgr.fifos.moves
 
   rules
-    "handle_command": when True ==> do
-      let newState =
-            case msgMgr.fifos.command.first of
-              GetState -> state
-              Reset -> initialState
+    "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
+      stateUpdate.wset state
+      msgMgr.fifos.command.deq
+    "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
+      stateUpdate.wset $ move m state
+      msgMgr.fifos.command.deq
+    "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
+      stateUpdate.wset initialState
+      msgMgr.fifos.command.deq
+    "update_state": when Just newState <- stateUpdate.wget ==> do
       state := newState
       eval.state.put newState
       msgMgr.fifos.state.enq newState
-      msgMgr.fifos.command.deq
 
   interface
     txData = enc.byte

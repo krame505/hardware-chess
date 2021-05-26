@@ -113,7 +113,7 @@ selectPos :: Board -> Position -> Maybe Piece
 selectPos b pos = select (select b pos.rank) pos.file
 
 updatePos :: Board -> Position -> Maybe Piece -> Board
-updatePos b pos p = update b pos.file (update (select b pos.file) pos.rank p)
+updatePos b pos p = update b pos.rank (update (select b pos.rank) pos.file p)
 
 move :: Move -> State -> State
 move (Move {from; to;} ) s =
@@ -283,7 +283,6 @@ data MoveResponse = NextMove Move
 
 interface StateEval =
   state :: Put State
-  --inCheck :: Bool
   moves :: Get MoveResponse
 
 {-# verilog mkStateEval #-}
