@@ -294,9 +294,8 @@ data MoveResponse = NextMove Move
   deriving (Eq, Bits)
 
 interface MoveEval =
-  putState :: State -> Action
-  nextMove :: MoveResponse
-  deqMove :: Action
+  state :: Put State
+  move :: GetS MoveResponse
 
 {-# verilog mkMoveEval #-}
 mkMoveEval :: Module MoveEval
@@ -390,7 +389,5 @@ mkMoveEval = module
                 states.deq
 
   interface
-    putState = states.enq
-    nextMove = moves.first
-    deqMove = moves.deq
-
+    state = toPut states
+    move = fifoToGetS moves

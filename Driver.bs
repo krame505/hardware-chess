@@ -41,14 +41,17 @@ mkChessDriver = module
   eval :: MoveEval <- mkMoveEval
   let updateState newState = do
         state := newState
-        eval.putState newState
+        eval.state.put newState
         msgMgr.fifos.state.enq newState
+
+  checkEvalState :: Wire State <- mkWire
+  isInCheck :: Wire Bool <- mkWire
 
   hasMoves :: Reg Bool <- mkReg False
 
   rules
     "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
-      eval.putState state
+      eval.state.put state
       msgMgr.fifos.state.enq state
       msgMgr.fifos.command.deq
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
@@ -58,15 +61,24 @@ mkChessDriver = module
       updateState $ initialState
       msgMgr.fifos.command.deq
 
-    "report_NextMove": when NextMove m <- eval.nextMove ==> do
-      if inCheck (move m state).board state.turn
+    -- This is split into seperate rules with wires to avoid excessive compilation times caused by aggressive inlining
+    "update_moveState": when True ==>
+      checkEvalState :=
+        case eval.move.first of
+          NextMove m -> move m state
+          NoMove -> state
+    "update_isInCheck": when True ==>
+      isInCheck := inCheck checkEvalState.board state.turn
+
+    "report_NextMove": when NextMove m <- eval.move.first ==> do
+      if isInCheck
         then noAction
         else do hasMoves := True
                 msgMgr.fifos.moves.enq $ NextMove m
-      eval.deqMove
-    "report_NoMove": when NoMove <- eval.nextMove ==> do
+      eval.move.deq
+    "report_NoMove": when NoMove <- eval.move.first ==> do
       let outcome :: Outcome =
-            case (inCheck state.board state.turn, hasMoves) of
+            case (isInCheck, hasMoves) of
               (False, False) -> Draw
               (False, True) -> NoOutcome
               (True, False) -> CheckMate
@@ -74,7 +86,7 @@ mkChessDriver = module
       msgMgr.fifos.moves.enq NoMove
       msgMgr.fifos.outcome.enq outcome
       hasMoves := False
-      eval.deqMove
+      eval.move.deq
 
   interface
     txData = enc.byte
