@@ -62,23 +62,39 @@ class ChessClient(msgclient.Client):
         self.state = None
         self._movesAccum = []
         self.moves = []
+        self.outcome = None
 
     def start(self):
         super().start()
         self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
 
     def notify(self):
-        updated = False
+        update = False
         while state := self.get("state"):
             self.state = state
-            updated = True
+            #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
                 self._movesAccum.append(ffi.new("Move *", move.contents.NextMove)[0])
             elif move.tag == lib.MoveResponse_NoMove:
                 self.moves = self._movesAccum
                 self._movesAccum = []
-                self.callback(self.event)
+                update = True
+        while outcome := self.get("outcome"):
+            self.outcome = outcome.tag
+            if self.outcome == lib.Outcome_Check:
+                self.event += " - Check"
+                update = True
+            elif self.outcome == lib.Outcome_CheckMate:
+                self.event += " - Checkmate"
+                update = True
+            elif self.outcome == lib.Outcome_Draw:
+                self.event += " - Draw"
+                update = True
+
+        if update:
+            self.callback(self.event)
+
 
     def jsonStatus(self):
         if self.state:

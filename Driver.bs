@@ -13,9 +13,13 @@ data Command = GetState
              | Reset
   deriving (Bits)
 
+data Outcome = NoOutcome | Check | CheckMate | Draw
+  deriving (Bits)
+
 interface ChessMsgs =
   command :: Rx 2 2 Command
   state :: Tx 2 2 State
+  outcome :: Tx 2 2 Outcome
   moves :: Tx 64 8 MoveResponse
 
 interface ChessDriver =
@@ -34,25 +38,43 @@ mkChessDriver = module
   msgMgr.txMsg <-> enc.msg
 
   state :: Reg State <- mkReg initialState
-  stateUpdate :: RWire State <- mkRWire
+  eval :: MoveEval <- mkMoveEval
+  let updateState newState = do
+        state := newState
+        eval.putState newState
+        msgMgr.fifos.state.enq newState
 
-  eval :: StateEval <- mkStateEval
-  eval.moves <-> toPut msgMgr.fifos.moves
+  hasMoves :: Reg Bool <- mkReg False
 
   rules
     "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
-      stateUpdate.wset state
+      eval.putState state
+      msgMgr.fifos.state.enq state
       msgMgr.fifos.command.deq
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
-      stateUpdate.wset $ move m state
+      updateState $ move m state
       msgMgr.fifos.command.deq
     "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
-      stateUpdate.wset initialState
+      updateState $ initialState
       msgMgr.fifos.command.deq
-    "update_state": when Just newState <- stateUpdate.wget ==> do
-      state := newState
-      eval.state.put newState
-      msgMgr.fifos.state.enq newState
+
+    "report_NextMove": when NextMove m <- eval.nextMove ==> do
+      if inCheck (move m state).board state.turn
+        then noAction
+        else do hasMoves := True
+                msgMgr.fifos.moves.enq $ NextMove m
+      eval.deqMove
+    "report_NoMove": when NoMove <- eval.nextMove ==> do
+      let outcome :: Outcome =
+            case (inCheck state.board state.turn, hasMoves) of
+              (False, False) -> Draw
+              (False, True) -> NoOutcome
+              (True, False) -> CheckMate
+              (True, True) -> Check
+      msgMgr.fifos.moves.enq NoMove
+      msgMgr.fifos.outcome.enq outcome
+      hasMoves := False
+      eval.deqMove
 
   interface
     txData = enc.byte
