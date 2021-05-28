@@ -4,6 +4,7 @@ import Driver
 import RS232
 import GetPut
 import Connectable
+import Clocks
 
 interface Top =
   tx :: Bit 1 {-# always_ready, always_enabled #-}
@@ -12,17 +13,24 @@ interface Top =
 clockFreq :: Integer
 clockFreq = 100000000
 
+clockDivisor :: Integer
+clockDivisor = 2
+
 baud :: Integer
 baud = 115200
 
 {-# verilog mkTop #-}
 mkTop :: Module Top
 mkTop = module
-  driver <- mkChessDriver
+  clockDivider <- mkClockDivider clockDivisor
+  reset <- mkReset clockDivisor True clockDivider.slowClock
+  driver <- changeSpecialWires (Just clockDivider.slowClock) (Just reset.new_rst) Nothing mkChessDriver
+  driverTx <- mkConverter 2 driver.txData
+  driverRx <- mkConverter 2 driver.rxData
 
   uart :: UART 8 <- mkUART 8 NONE STOP_1 (fromInteger $ clockFreq / (baud * 16))
-  driver.txData <-> uart.rx
-  uart.tx <-> driver.rxData
+  driverTx <-> uart.rx
+  uart.tx <-> driverRx
 
   interface
     tx = uart.rs232.sout
