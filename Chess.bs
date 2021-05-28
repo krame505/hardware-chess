@@ -329,6 +329,7 @@ mkMoveEval = module
       pawnHomeRank = if turn == White then 6 else 1
       enPassantRank = if turn == White then 3 else 4
       promoRank = if turn == White then 0 else 7
+      kingStartPos = Position {rank=homeRank; file=4;}
 
       open :: Position -> Bool
       open pos =
@@ -384,6 +385,17 @@ mkMoveEval = module
                  cond = (evalPieceIs Bishop || evalPieceIs Queen) && dispInBounds evalPos d && (open pos || capturable pos) && reachable
              in mkMoveRule "diagonal_move" cond $ Move {from=evalPos; to=pos;})
            (genVector :: Vector 7 Integer)) diagonalDisps)
+        `append` vec
+        (let kingPath = vec kingStartPos (Position {rank=homeRank; file=3;}) (Position {rank=homeRank; file=2;})
+             between = vec (Position {rank=homeRank; file=1;}) (Position {rank=homeRank; file=2;}) (Position {rank=homeRank; file=3;})
+             threat = any (isThreatened state.board state.turn) kingPath
+             clear = all open between
+         in mkMoveRule "castle_queenside" (evalPos == kingStartPos && not hist.kingMoved && not hist.qRookMoved && not threat && clear) $ Castle {kingSide=False})
+        (let kingPath = vec kingStartPos (Position {rank=homeRank; file=5;}) (Position {rank=homeRank; file=6;})
+             between = vec (Position {rank=homeRank; file=5;}) (Position {rank=homeRank; file=6;})
+             threat = any (isThreatened state.board state.turn) kingPath
+             clear = all open between
+         in mkMoveRule "castle_kingside" (evalPos == kingStartPos && not hist.kingMoved && not hist.kRookMoved && not threat && clear) $ Castle {kingSide=True})
 
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
