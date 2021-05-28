@@ -1,13 +1,9 @@
 *~
 *.v
-*.bo
-*.ba
-*.c
-*.cxx
-*.h
 *.o
 *.so
 *.out
+bin/
 __pycache__/
 *.cache/
 *.hw/

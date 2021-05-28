@@ -26,8 +26,13 @@ interface ChessDriver =
   txData :: Get (Bit 8)
   rxData :: Put (Bit 8)
 
-mkChessDriver :: (GenCMsg ChessMsgs rxBytes txBytes) => Module ChessDriver
-mkChessDriver = module
+{-# verilog mkChessDriver #-}
+mkChessDriver :: Module ChessDriver
+mkChessDriver = _mkChessDriver
+
+-- Seperate due to the context
+_mkChessDriver :: (GenCMsg ChessMsgs rxBytes txBytes) => Module ChessDriver
+_mkChessDriver = module
   writeCMsgDecls "chess" (_ :: ChessMsgs)
 
   enc :: COBSEncoder txBytes <- mkCOBSEncoder
