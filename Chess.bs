@@ -200,7 +200,7 @@ trace :: Board -> Position -> (Integer -> (Integer, Integer)) -> Maybe Piece
 trace board pos disp =
   foldr
     (\ i res ->
-       let (x, y) = disp (fromInteger i)
+       let (x, y) = disp i
        in
          if dispInBounds pos (x, y)
          then
@@ -228,7 +228,8 @@ rankFileDisps = vec (\ i -> (0, i + 1)) (\ i -> (0, negate i - 1)) (\ i -> (i + 
 diagonalDisps :: Vector 4 (Integer -> (Integer, Integer))
 diagonalDisps = vec (\ i -> (i + 1, i + 1)) (\ i -> (i + 1, negate i - 1)) (\ i -> (negate i - 1, i + 1)) (\ i -> (negate i - 1, negate i - 1))
 
--- Note that this does not handle en passant
+-- Note that this does not handle en passant, however it is currently only used
+-- to determine if a King is in check.
 isThreatened :: Board -> Color -> Position -> Bool
 isThreatened board player pos =
   let traceRankFile = map (trace board pos) rankFileDisps
@@ -369,6 +370,20 @@ mkMoveEval = module
         `append` map (\ d ->
            let pos = dispPos evalPos d
            in mkMoveRule "knight_move" (evalPieceIs Knight && dispInBounds evalPos d && (open pos || capturable pos)) $ Move {from=evalPos; to=pos;}) knightMoves
+        `append` concat (map (\ df -> map (\ i ->
+             let d = df i
+                 pos = dispPos evalPos $ d
+                 reachable = List.all (\ j -> open $ dispPos evalPos $ df j) $ List.upto 0 (i - 1)
+                 cond = (evalPieceIs Rook || evalPieceIs Queen) && dispInBounds evalPos d && (open pos || capturable pos) && reachable
+             in mkMoveRule "rank_file_move" cond $ Move {from=evalPos; to=pos;})
+           (genVector :: Vector 7 Integer)) rankFileDisps)
+        `append` concat (map (\ df -> map (\ i ->
+             let d = df i
+                 pos = dispPos evalPos $ d
+                 reachable = List.all (\ j -> open $ dispPos evalPos $ df j) $ List.upto 0 (i - 1)
+                 cond = (evalPieceIs Bishop || evalPieceIs Queen) && dispInBounds evalPos d && (open pos || capturable pos) && reachable
+             in mkMoveRule "diagonal_move" cond $ Move {from=evalPos; to=pos;})
+           (genVector :: Vector 7 Integer)) diagonalDisps)
 
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
