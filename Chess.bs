@@ -276,7 +276,7 @@ mkMoveRule name cond m = module
     moveRules enq =
       rules
         name: when cond && not done ==> do
-          $display "move " (cshow m)
+          -- $display "move " (cshow m)
           enq m
           done := True
     finished = done || not cond
@@ -289,6 +289,10 @@ joinMoveRule m1 m2 =
     finished = m1.finished && m2.finished
     reset = do m1.reset
                m2.reset
+
+-- TODO: Probably an overestimate
+maxStateMoves :: Integer
+maxStateMoves = 200
 
 data MoveResponse = NextMove Move
                   | NoMove
@@ -405,17 +409,17 @@ mkMoveEval = module
       when moveEval.finished
         rules
           "next_file": when Just file <- nextFile ==> do
-            $display "next_file " file
+            -- $display "next_file " file
             evalPos := Position {rank=evalPos.rank; file=file;}
             moveEval.reset
           when Nothing <- nextFile
             rules
               "next_rank": when evalPos.rank < 7 ==> do
-                $display "next_rank " (evalPos.rank + 1)
+                -- $display "next_rank " (evalPos.rank + 1)
                 evalPos := Position {rank = evalPos.rank + 1; file = 0;}
                 moveEval.reset
               "reset": when evalPos.rank == 7 ==> do
-                $display "reset"
+                -- $display "reset"
                 evalPos := Position {rank = 0; file = 0;}
                 moveEval.reset
                 moves.enq NoMove

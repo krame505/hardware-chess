@@ -11,7 +11,9 @@ events.onerror = function() {
 
 function init() {
   update()
+  updateConfig()
 }
+
 function pieceChar(kind) {
   if (kind == 'King') return '♚'
   else if (kind == 'Queen') return '♛'
@@ -92,6 +94,10 @@ function doMove(i) {
 
 function reset() {
   $.ajax({url: "reset"})
+}
+
+function updateConfig() {
+  $.ajax({url: "config/" + whiteAI.checked + "," + blackAI.checked})
 }
 
 var selected = null

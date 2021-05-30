@@ -63,6 +63,8 @@ class ChessClient(msgclient.Client):
         self._movesAccum = []
         self.moves = []
         self.outcome = None
+        self.whiteAI = False
+        self.blackAI = False
 
     def start(self):
         super().start()
@@ -73,6 +75,8 @@ class ChessClient(msgclient.Client):
         while state := self.get("state"):
             self.state = state
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
+            if (state.turn.tag == lib.Color_Black and self.blackAI) or (state.turn.tag == lib.Color_Black and self.blackAI):
+                self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove})[0])
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
                 self._movesAccum.append(ffi.new("Move *", move.contents.NextMove)[0])
@@ -91,6 +95,9 @@ class ChessClient(msgclient.Client):
             elif self.outcome == lib.Outcome_Draw:
                 self.event += " - Draw"
                 update = True
+        while searchMove := self.get("searchMove"):
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': searchMove}})[0])
+            self.event = strMove(self.state, searchMove)
 
         if update:
             self.callback(self.event)
@@ -107,3 +114,7 @@ class ChessClient(msgclient.Client):
     def reset(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
         self.event = "Game reset"
+
+    def config(self, whiteAI, blackAI):
+        self.whiteAI = whiteAI
+        self.blackAI = blackAI

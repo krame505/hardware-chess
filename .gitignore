@@ -3,9 +3,11 @@
 *.o
 *.so
 *.out
+*.sched
 bin/
 __pycache__/
 *.cache/
 *.hw/
 *.runs/
 *.ip_user_files/
+*.sim/

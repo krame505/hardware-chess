@@ -1,0 +1,161 @@
+package SearchCore where
+
+import Chess
+import FIFO
+import FIFOF
+import BRAMFIFO
+import GetPut
+import Connectable
+import Vector
+import CShow
+
+type Depth = UInt 8
+type Score = Int 8
+type MoveCount = UInt 8
+
+pieceValue :: PieceKind -> Score
+pieceValue Pawn = 1
+pieceValue Knight = 3
+pieceValue Bishop = 3
+pieceValue Rook = 5
+pieceValue Queen = 9
+pieceValue King = 0
+
+heuristicScore :: State -> Score
+heuristicScore state =
+  let squares = concat state.board
+      turnHasKing = any ((==) $ Just $ Piece {color=state.turn; kind=King;}) squares
+      otherHasKing = any ((==) $ Just $ Piece {color=otherColor state.turn; kind=King;}) squares
+  in
+    if turnHasKing && not otherHasKing
+    then maxBound
+    else if not turnHasKing && otherHasKing
+    then minBound
+    else
+      foldr1 (+) $ map (\ square ->
+        case square of
+          Nothing -> 0
+          Just piece ->
+            (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
+      ) squares
+
+struct SearchQuery =
+  state :: State
+  depth :: Depth
+ deriving (Bits)
+
+struct SearchResult =
+  bestMove :: Move
+  score :: Score
+  depth :: Depth
+ deriving (Bits)
+
+interface Frame =
+  putState :: State -> Action
+  putScore :: Score -> ActionValue Bool
+  moves :: FIFOF Move
+  state :: State
+  bestScore :: Score
+
+mkFrame :: Module Frame
+mkFrame = module
+  state <- mkReg _
+  moves <- {- mkSizedBRAMFIFOF -} mkSizedFIFOF maxStateMoves
+  bestScore <- mkReg minBound
+  interface
+    putState s =
+      do state := s
+         bestScore := minBound
+    putScore s =
+      do let isBestScore = s > bestScore
+         if isBestScore then bestScore := s else noAction
+         return isBestScore
+    moves = moves
+    state = state
+    bestScore = bestScore
+
+interface (SearchCore :: # -> *) maxDepth =
+  query :: Put SearchQuery
+  result :: Get SearchResult
+
+mkSearchCore :: Module (SearchCore maxDepth)
+mkSearchCore = module
+  queries :: FIFO SearchQuery <- mkFIFO
+  results :: FIFO SearchResult <- mkFIFO
+
+  initialDepth :: Reg Depth <- mkReg 0
+
+  stack :: Vector maxDepth Frame <- replicateM mkFrame
+  stackSize :: Reg Depth <- mkReg 0
+  let depth = initialDepth - stackSize
+      nextFrame = select stack stackSize
+      topFrame = select stack (stackSize - 1)
+      prevFrame = select stack (stackSize - 2)
+
+  newState :: Wire State <- mkWire
+  newHeuristicScore :: Wire Score <- mkWire
+  let isNewStateTerminal = depth == 0 || newHeuristicScore == minBound || newHeuristicScore == maxBound
+
+  eval :: MoveEval <- mkMoveEval
+  movesComplete :: Reg Bool <- mkReg True
+  let evalState s = do
+        eval.state.put s
+        movesComplete := False
+
+  bestMove :: Reg Move <- mkReg _
+  currentMove :: Reg Move <- mkReg _
+
+  rules
+    "gen_state": when stackSize > 0 ==> newState := move topFrame.moves.first topFrame.state
+    "gen_heuristic": when stackSize > 0 ==> newHeuristicScore := heuristicScore newState
+
+    "put_NextMove": when not movesComplete, NextMove m <- eval.move.first ==> do
+      -- $display "put_NextMove " stackSize " " (cshow m)
+      topFrame.moves.enq m
+      eval.move.deq
+    "put_NoMove": when not movesComplete, NoMove <- eval.move.first ==> do
+      -- $display "put_NoMove " stackSize
+      movesComplete := True
+      eval.move.deq
+
+    "heuristic_state": when stackSize > 0, topFrame.moves.notEmpty, isNewStateTerminal ==> do
+      -- $display "heuristic_state " stackSize " " (cshow topFrame.moves.notEmpty) " " newHeuristicScore
+      topFrame.putScore $ negate newHeuristicScore
+      topFrame.moves.deq
+
+    when movesComplete
+      rules
+        "push_state": when stackSize > 0, topFrame.moves.notEmpty, not isNewStateTerminal ==> do
+          $display "push_state " stackSize
+          nextFrame.putState newState
+          evalState newState
+          if stackSize == 1 then currentMove := topFrame.moves.first else noAction
+          topFrame.moves.deq
+          stackSize := stackSize + 1
+
+        "pop_state": when stackSize > 1, not topFrame.moves.notEmpty ==> do
+          $display "pop_state " stackSize " " topFrame.bestScore
+          isBestScore <- prevFrame.putScore $ negate topFrame.bestScore
+          if stackSize == 2 && isBestScore then bestMove := currentMove else noAction
+          stackSize := stackSize - 1
+
+        "push_query_state": when stackSize == 0 ==> do
+          $display "push_query_state " (cshow queries.first)
+          initialDepth := queries.first.depth
+          nextFrame.putState queries.first.state
+          evalState queries.first.state
+          stackSize := 1
+          queries.deq
+
+        "pop_result_state": when stackSize == 1, not topFrame.moves.notEmpty ==> do
+          $display "pop_result_state " (cshow $ SearchResult { bestMove=bestMove; score=topFrame.bestScore; depth=initialDepth; })
+          results.enq $ SearchResult { bestMove=bestMove; score=topFrame.bestScore; depth=initialDepth; }
+          stackSize := 0
+
+  interface
+    query = toPut queries
+    result = toGet results
+
+{-# verilog mkDefaultSearchCore #-}
+mkDefaultSearchCore :: Module (SearchCore 3)
+mkDefaultSearchCore = mkSearchCore

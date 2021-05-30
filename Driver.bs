@@ -1,6 +1,7 @@
 package Driver where
 
 import Chess
+import SearchCore
 import GenCMsg
 import GenCRepr
 import GetPut
@@ -8,8 +9,12 @@ import Connectable
 import COBS
 import CShow
 
+searchDepth :: Depth
+searchDepth = 3
+
 data Command = GetState
              | Move Move
+             | GetSearchMove
              | Reset
   deriving (Bits)
 
@@ -21,6 +26,7 @@ interface ChessMsgs =
   state :: Tx 2 2 State
   outcome :: Tx 2 2 Outcome
   moves :: Tx 64 8 MoveResponse
+  searchMove :: Tx 2 2 Move
 
 interface ChessDriver =
   txData :: Get (Bit 8)
@@ -44,6 +50,7 @@ _mkChessDriver = module
 
   state :: Reg State <- mkReg initialState
   eval :: MoveEval <- mkMoveEval
+  searchCore <- mkDefaultSearchCore
   let updateState newState = do
         state := newState
         eval.state.put newState
@@ -61,6 +68,9 @@ _mkChessDriver = module
       msgMgr.fifos.command.deq
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
       updateState $ move m state
+      msgMgr.fifos.command.deq
+    "handle_GetSearchMove": when GetSearchMove <- msgMgr.fifos.command.first ==> do
+      searchCore.query.put $ SearchQuery {state=state; depth=searchDepth;}
       msgMgr.fifos.command.deq
     "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
       updateState $ initialState
@@ -92,6 +102,9 @@ _mkChessDriver = module
       msgMgr.fifos.outcome.enq outcome
       hasMoves := False
       eval.move.deq
+    "report_search_move": when True ==> do
+      result <- searchCore.result.get
+      msgMgr.fifos.searchMove.enq result.bestMove
 
   interface
     txData = enc.byte

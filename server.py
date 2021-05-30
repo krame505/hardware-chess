@@ -43,6 +43,11 @@ def reset():
     client.reset()
     return ""
 
+@app.route("/config/<whiteAI>,<blackAI>")
+def config(whiteAI, blackAI):
+    client.config(whiteAI, blackAI)
+    return ""
+
 @app.route("/events")
 def events():
     def eventStream():
