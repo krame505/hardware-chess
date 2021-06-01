@@ -13,6 +13,9 @@ type Depth = UInt 8
 type Score = Int 8
 type MoveCount = UInt 8
 
+moveQueueSize :: Integer
+moveQueueSize = 100
+
 padDepth :: Depth -> String
 padDepth 10 = "                    "
 padDepth 9 = "                  "
@@ -64,7 +67,7 @@ mkFrame :: Module Frame
 mkFrame = module
   state <- mkReg _
   inCheck <- mkReg False
-  moves <- {- mkSizedBRAMFIFOF -} mkSizedFIFOF maxStateMoves
+  moves <- {- mkSizedBRAMFIFOF -} mkSizedFIFOF moveQueueSize
   hasMove <- mkReg False
   bestScore <- mkReg 0
   interface
@@ -88,6 +91,8 @@ mkFrame = module
 interface (SearchCore :: # -> *) maxDepth =
   query :: Put SearchQuery
   result :: Get SearchResult
+
+  status :: Bit 8 {-# always_ready, always_enabled #-}
 
 mkSearchCore :: Module (SearchCore maxDepth)
 mkSearchCore = module
@@ -134,6 +139,9 @@ mkSearchCore = module
       -- $display (padDepth stackSize) stackSize " put_NoMove"
       movesComplete := True
       eval.move.deq
+    "discard_overflow_state": when not movesComplete, stackSize > 0, not currentPlayerInCheck, depth > 0, not topFrame.moves.notFull ==> do
+      $display (padDepth stackSize) stackSize " discard_overflow_state " (cshow topFrame.moves.first)
+      topFrame.moves.deq
 
     "ignore_check_state": when stackSize > 0, currentPlayerInCheck ==> do
       $display (padDepth stackSize) stackSize " ignore_check_state " (cshow topFrame.moves.first)
@@ -141,7 +149,8 @@ mkSearchCore = module
 
     "heuristic_state": when stackSize > 0, not currentPlayerInCheck, depth == 0 ==> do
       $display (padDepth stackSize) stackSize " heuristic_state " (cshow topFrame.moves.first) " " stateHeuristicScore
-      topFrame.putScore $ negate stateHeuristicScore
+      isBestScore <- topFrame.putScore $ negate stateHeuristicScore
+      if stackSize == 1 && isBestScore then bestMove := topFrame.moves.first else noAction
       topFrame.moves.deq
 
     when movesComplete
@@ -179,6 +188,7 @@ mkSearchCore = module
   interface
     query = toPut queries
     result = toGet results
+    status = pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (impCondOf eval.move.first) ++ pack (impCondOf eval.move.deq) ++ ((truncate $ pack stackSize) :: Bit 2) ++ ((truncate $ pack depth) :: Bit 2)
 
 {-# verilog mkDefaultSearchCore #-}
 mkDefaultSearchCore :: Module (SearchCore 3)

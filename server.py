@@ -45,7 +45,7 @@ def reset():
 
 @app.route("/config/<whiteAI>,<blackAI>")
 def config(whiteAI, blackAI):
-    client.config(whiteAI, blackAI)
+    client.config(whiteAI == 'true', blackAI == 'true')
     return ""
 
 @app.route("/events")

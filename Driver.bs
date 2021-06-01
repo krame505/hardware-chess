@@ -9,12 +9,9 @@ import Connectable
 import COBS
 import CShow
 
-searchDepth :: Depth
-searchDepth = 3
-
 data Command = GetState
              | Move Move
-             | GetSearchMove
+             | GetSearchMove Depth
              | Reset
   deriving (Bits)
 
@@ -31,6 +28,8 @@ interface ChessMsgs =
 interface ChessDriver =
   txData :: Get (Bit 8)
   rxData :: Put (Bit 8)
+
+  status :: Bit 8  {-# always_ready, always_enabled #-}
 
 {-# verilog mkChessDriver #-}
 mkChessDriver :: Module ChessDriver
@@ -69,8 +68,8 @@ _mkChessDriver = module
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
       updateState $ move m state
       msgMgr.fifos.command.deq
-    "handle_GetSearchMove": when GetSearchMove <- msgMgr.fifos.command.first ==> do
-      searchCore.query.put $ SearchQuery {state=state; depth=searchDepth;}
+    "handle_GetSearchMove": when GetSearchMove depth <- msgMgr.fifos.command.first ==> do
+      searchCore.query.put $ SearchQuery {state=state; depth=depth;}
       msgMgr.fifos.command.deq
     "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
       updateState $ initialState
@@ -109,3 +108,4 @@ _mkChessDriver = module
   interface
     txData = enc.byte
     rxData = dec.byte
+    status = searchCore.status

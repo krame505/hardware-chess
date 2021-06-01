@@ -9,6 +9,7 @@ import Clocks
 interface Top =
   tx :: Bit 1 {-# always_ready, always_enabled #-}
   rx :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [rx] #-}
+  status :: Bit 8 {-# always_ready, always_enabled #-}
 
 clockFreq :: Integer
 clockFreq = 100000000
@@ -32,6 +33,11 @@ mkTop = module
   driverTx <-> uart.rx
   uart.tx <-> driverRx
 
+  driverStatus <- mkConverter 2 $ toGet driver.status
+  lastStatus :: Reg (Bit 8) <- mkReg 0
+  driverStatus <-> toPut lastStatus._write
+
   interface
     tx = uart.rs232.sout
     rx = uart.rs232.sin
+    status = lastStatus
