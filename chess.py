@@ -64,7 +64,7 @@ class ChessClient(msgclient.Client):
         self.moves = []
         self.outcome = None
         self.whiteAI = False
-        self.blackAI = False
+        self.blackAI = True
 
     def start(self):
         super().start()
@@ -75,7 +75,7 @@ class ChessClient(msgclient.Client):
         while state := self.get("state"):
             self.state = state
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
-            if (state.turn.tag == lib.Color_Black and self.blackAI) or (state.turn.tag == lib.Color_Black and self.blackAI):
+            if (state.turn.tag == lib.Color_Black and self.blackAI) or (state.turn.tag == lib.Color_White and self.whiteAI):
                 self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove})[0])
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
@@ -96,8 +96,9 @@ class ChessClient(msgclient.Client):
                 self.event += " - Draw"
                 update = True
         while searchMove := self.get("searchMove"):
-            self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': searchMove}})[0])
-            self.event = strMove(self.state, searchMove)
+            if searchMove.tag == lib.Maybe_Move_Valid:
+                self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': searchMove.contents.Valid}})[0])
+                self.event = strMove(self.state, searchMove.contents.Valid)
 
         if update:
             self.callback(self.event)
@@ -108,8 +109,9 @@ class ChessClient(msgclient.Client):
             return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
 
     def move(self, i):
-        self.event = strMove(self.state, self.moves[i])
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
+        if (self.state.turn.tag == lib.Color_Black and not self.blackAI) or (self.state.turn.tag == lib.Color_White and not self.whiteAI):
+            self.event = strMove(self.state, self.moves[i])
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
 
     def reset(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])

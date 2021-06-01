@@ -26,7 +26,7 @@ interface ChessMsgs =
   state :: Tx 2 2 State
   outcome :: Tx 2 2 Outcome
   moves :: Tx 64 8 MoveResponse
-  searchMove :: Tx 2 2 Move
+  searchMove :: Tx 2 2 (Maybe Move)
 
 interface ChessDriver =
   txData :: Get (Bit 8)
