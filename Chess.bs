@@ -290,10 +290,6 @@ joinMoveRule m1 m2 =
     reset = do m1.reset
                m2.reset
 
--- TODO: Probably an overestimate
-maxStateMoves :: Integer
-maxStateMoves = 200
-
 data MoveResponse = NextMove Move
                   | NoMove
   deriving (Eq, Bits)

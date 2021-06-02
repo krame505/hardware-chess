@@ -72,6 +72,8 @@ class ChessClient(msgclient.Client):
     def start(self):
         super().start()
         self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+        self.event = "Server restarted"
+        self.callback(self.event)
 
     def notify(self):
         update = False

@@ -99,11 +99,11 @@ mkSearchCore = module
   queries :: FIFO SearchQuery <- mkFIFO
   results :: FIFO SearchResult <- mkFIFO
 
-  initialDepth :: Reg Depth <- mkReg 0
+  depth :: Reg Depth <- mkReg 0
 
   stack :: Vector maxDepth Frame <- replicateM mkFrame
   stackSize :: Reg Depth <- mkReg 0
-  let depth = initialDepth - stackSize
+  let isTerminal = stackSize >= depth
       nextFrame = select stack stackSize
       topFrame = select stack (stackSize - 1)
       prevFrame = select stack (stackSize - 2)
@@ -139,7 +139,7 @@ mkSearchCore = module
       -- $display (padDepth stackSize) stackSize " put_NoMove"
       movesComplete := True
       eval.move.deq
-    "discard_overflow_state": when not movesComplete, stackSize > 0, not currentPlayerInCheck, depth > 0, not topFrame.moves.notFull ==> do
+    "discard_overflow_state": when not movesComplete, stackSize > 0, not currentPlayerInCheck, not isTerminal, not topFrame.moves.notFull ==> do
       $display (padDepth stackSize) stackSize " discard_overflow_state " (cshow topFrame.moves.first)
       topFrame.moves.deq
 
@@ -147,7 +147,7 @@ mkSearchCore = module
       $display (padDepth stackSize) stackSize " ignore_check_state " (cshow topFrame.moves.first)
       topFrame.moves.deq
 
-    "heuristic_state": when stackSize > 0, not currentPlayerInCheck, depth == 0 ==> do
+    "heuristic_state": when stackSize > 0, not currentPlayerInCheck, isTerminal ==> do
       $display (padDepth stackSize) stackSize " heuristic_state " (cshow topFrame.moves.first) " " stateHeuristicScore
       isBestScore <- topFrame.putScore $ negate stateHeuristicScore
       if stackSize == 1 && isBestScore then bestMove := topFrame.moves.first else noAction
@@ -155,7 +155,7 @@ mkSearchCore = module
 
     when movesComplete
       rules
-        "push_state": when stackSize > 0, not currentPlayerInCheck, depth > 0 ==> do
+        "push_state": when stackSize > 0, not currentPlayerInCheck, not isTerminal ==> do
           $display (padDepth stackSize) stackSize " push_state " (cshow topFrame.moves.first) " " stateHeuristicScore
           putState
           if stackSize == 1 then currentMove := topFrame.moves.first else noAction
@@ -170,7 +170,7 @@ mkSearchCore = module
 
         "push_query_state": when stackSize == 0 ==> do
           $display (padDepth stackSize) stackSize " push_query_state " (cshow queries.first)
-          initialDepth := queries.first.depth
+          depth := queries.first.depth
           putState
           stackSize := 1
           queries.deq
@@ -179,7 +179,7 @@ mkSearchCore = module
           let result = SearchResult {
                 bestMove = if topFrame.hasMove then Just bestMove else Nothing;
                 score=topFrame.score;
-                depth=initialDepth;
+                depth=depth;
               }
           $display (padDepth stackSize) stackSize " pop_result_state " (cshow result)
           results.enq result
@@ -188,8 +188,8 @@ mkSearchCore = module
   interface
     query = toPut queries
     result = toGet results
-    status = pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (impCondOf eval.move.first) ++ pack (impCondOf eval.move.deq) ++ ((truncate $ pack stackSize) :: Bit 2) ++ ((truncate $ pack depth) :: Bit 2)
+    status = pack stackSize --pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (depth > 0) ++ pack (impCondOf currentPlayerInCheck) ++ ((truncate $ pack stackSize) :: Bit 4)
 
 {-# verilog mkDefaultSearchCore #-}
-mkDefaultSearchCore :: Module (SearchCore 3)
+mkDefaultSearchCore :: Module (SearchCore 8)
 mkDefaultSearchCore = mkSearchCore
