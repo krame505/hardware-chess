@@ -54,7 +54,7 @@ def strMove(state, move):
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
-depth = 3
+depth = 4
 
 class ChessClient(msgclient.Client):
     def __init__(self, serial, callback):
@@ -80,40 +80,47 @@ class ChessClient(msgclient.Client):
         while state := self.get("state"):
             self.state = state
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
-            self.getSearchMove()
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
-                print("Got move", strMove(self.state, move.contents.NextMove))
+                #print("Got move", strMove(self.state, move.contents.NextMove))
                 self._movesAccum.append(ffi.new("Move *", move.contents.NextMove)[0])
             elif move.tag == lib.MoveResponse_NoMove:
-                print("Got no more moves")
+                #print("Got no more moves")
                 self.moves = self._movesAccum
                 self._movesAccum = []
                 update = True
         while outcome := self.get("outcome"):
-            self.outcome = outcome.tag
-            if self.outcome == lib.Outcome_Check:
-                self.event += " - Check"
-                update = True
-            elif self.outcome == lib.Outcome_CheckMate:
-                self.event += " - Checkmate"
-                update = True
-            elif self.outcome == lib.Outcome_Draw:
-                self.event += " - Draw"
-                update = True
+            if self.outcome is None:
+                self.outcome = outcome.tag
+                if self.outcome == lib.Outcome_Check:
+                    self.event += " - Check"
+                    update = True
+                elif self.outcome == lib.Outcome_CheckMate:
+                    self.event += " - Checkmate"
+                    update = True
+                elif self.outcome == lib.Outcome_Draw:
+                    self.event += " - Draw"
+                    update = True
+            self.getSearchMove()
         while searchMove := self.get("searchMove"):
-            print("Got search move")
+            #print("Got search move")
+            self.awaitingSearchMove = False
             if searchMove.tag == lib.Maybe_Move_Valid:
                 self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': searchMove.contents.Valid}})[0])
                 self.event = strMove(self.state, searchMove.contents.Valid)
-            self.awaitingSearchMove = False
+                self.outcome = None
+            else:
+                # Retry
+                self.getSearchMove()
 
         if update:
             self.callback(self.event)
 
     def getSearchMove(self):
-        if not self.awaitingSearchMove and ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI)):
-            print("Getting search move", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
+        if (not self.awaitingSearchMove and
+            (self.outcome == lib.Outcome_NoOutcome or self.outcome == lib.Outcome_Check) and
+            ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
+            #print("Getting search move", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
             self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove, 'contents': {'GetSearchMove': depth}})[0])
             self.awaitingSearchMove = True
 
@@ -123,12 +130,14 @@ class ChessClient(msgclient.Client):
 
     def move(self, i):
         if (self.state.turn.tag == lib.Color_Black and not self.blackAI) or (self.state.turn.tag == lib.Color_White and not self.whiteAI):
-            self.event = strMove(self.state, self.moves[i])
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
+            self.event = strMove(self.state, self.moves[i])
+            self.outcome = None
 
     def reset(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
         self.event = "Game reset"
+        self.outcome = None
 
     def config(self, whiteAI, blackAI):
         self.whiteAI = whiteAI

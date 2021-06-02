@@ -171,7 +171,12 @@ mkSearchCore = module
   rules
     when movesComplete
       rules
-        "push_query_state": when stackSize == 0 ==> do
+        "invalid_query_depth": when stackSize == 0, queries.first.depth > fromInteger (valueOf maxDepth) ==> do
+          $display stackSize " invalid_query_depth " (cshow queries.first)
+          results.enq $ SearchResult {bestMove=Nothing; score=bottomFrame.score; depth=queries.first.depth;}
+          queries.deq
+
+        "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
           $display stackSize " push_query_state " (cshow queries.first)
           depth := queries.first.depth
           putState bottomFrame
@@ -191,7 +196,7 @@ mkSearchCore = module
   interface
     query = toPut queries
     result = toGet results
-    status = pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (depth > 0) ++ pack (impCondOf currentPlayerInCheck) ++ ((truncate $ pack stackSize) :: Bit 4)
+    status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4)
 
 {-# verilog mkDefaultSearchCore #-}
 mkDefaultSearchCore :: Module (SearchCore 8)
