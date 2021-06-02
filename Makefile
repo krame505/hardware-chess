@@ -22,10 +22,14 @@ sim: | rtl contrib $(BUILDDIR)
 	bsc $(BSCFLAGS) -sim SimTop.bs
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
 
+vsim: | contrib $(BUILDDIR)
+	bsc $(BSCFLAGS) -u -verilog VSimTop.bs
+	bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
+
 ffi: | rtl $(BUILDDIR)
 	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py "chess"
 
 clean:
 	rm -rf *~ *.h *.o *.so *.cxx *.v *.out bin/ __pycache__/
 
-.PHONY: all contrib rtl sim ffi clean
+.PHONY: all contrib rtl sim vsim ffi clean

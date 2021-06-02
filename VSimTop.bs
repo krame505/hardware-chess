@@ -1,0 +1,32 @@
+package VSimTop where
+
+import Chess
+import SearchCore
+import CShow
+import GetPut
+
+searchDepth :: Depth
+searchDepth = 3
+
+{-# verilog sysChessVSim #-}
+sysChessVSim :: Module Empty
+sysChessVSim = module
+  searchCore <- mkDefaultSearchCore
+  state <- mkReg initialState
+
+  init <- mkReg False
+  rules
+    "init": when not init ==> do
+      $display (cshow state)
+      searchCore.query.put $ SearchQuery {state=state; depth=searchDepth;}
+      init := True
+    "move": when init ==> do
+      result <- searchCore.result.get
+      $display (cshow result)
+      case result.bestMove of
+        Just m -> do
+          let newState = move m state
+          $display newState
+          state := newState
+          searchCore.query.put $ SearchQuery {state=newState; depth=searchDepth;}
+        Nothing -> $finish
