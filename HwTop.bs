@@ -15,7 +15,7 @@ clockFreq :: Integer
 clockFreq = 100000000
 
 clockDivisor :: Integer
-clockDivisor = 2
+clockDivisor = 4
 
 baud :: Integer
 baud = 115200
