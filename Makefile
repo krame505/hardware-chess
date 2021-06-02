@@ -3,7 +3,6 @@ BUILDDIR ?= bin
 override BSCFLAGS += -p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
 override BSCFLAGS += -bdir $(BUILDDIR) -fdir $(BUILDDIR) -simdir $(BUILDDIR)
 override BSCFLAGS += +RTS -K1G -RTS -steps-warn-interval 1000000
-override BSCFLAGS += -aggressive-conditions
 
 all: rtl sim ffi
 

@@ -16,19 +16,6 @@ type MoveCount = UInt 8
 moveQueueSize :: Integer
 moveQueueSize = 100
 
-padDepth :: Depth -> String
-padDepth 10 = "                    "
-padDepth 9 = "                  "
-padDepth 8 = "                "
-padDepth 7 = "              "
-padDepth 6 = "            "
-padDepth 5 = "          "
-padDepth 4 = "        "
-padDepth 3 = "      "
-padDepth 2 = "    "
-padDepth 1 = "  "
-padDepth _ = ""
-
 pieceValue :: PieceKind -> Score
 pieceValue Pawn = 1
 pieceValue Knight = 3
@@ -70,6 +57,7 @@ mkFrame = module
   moves <- {- mkSizedBRAMFIFOF -} mkSizedFIFOF moveQueueSize
   hasMove <- mkReg False
   bestScore <- mkReg 0
+
   interface
     putState s c =
       do state := s
@@ -94,7 +82,7 @@ interface (SearchCore :: # -> *) maxDepth =
 
   status :: Bit 8 {-# always_ready, always_enabled #-}
 
-mkSearchCore :: Module (SearchCore maxDepth)
+mkSearchCore :: (Add 1 n maxDepth) => Module (SearchCore maxDepth)
 mkSearchCore = module
   queries :: FIFO SearchQuery <- mkFIFO
   results :: FIFO SearchResult <- mkFIFO
@@ -103,11 +91,10 @@ mkSearchCore = module
 
   stack :: Vector maxDepth Frame <- replicateM mkFrame
   stackSize :: Reg Depth <- mkReg 0
-  let isTerminal = stackSize >= depth
-      nextFrame = select stack stackSize
-      topFrame = select stack (stackSize - 1)
-      prevFrame = select stack (stackSize - 2)
+  let topFrame = select stack (stackSize - 1)
+      bottomFrame = stack !! 0
 
+  stateMove :: Wire Move <- mkWire
   state :: Wire State <- mkWire
   stateHeuristicScore :: Wire Score <- mkWire
   currentPlayerInCheck :: Wire Bool <- mkWire
@@ -115,8 +102,8 @@ mkSearchCore = module
 
   eval :: MoveEval <- mkMoveEval
   movesComplete :: Reg Bool <- mkReg True
-  let putState = do
-        nextFrame.putState state otherPlayerInCheck
+  let putState frame = do
+        frame.putState state otherPlayerInCheck
         eval.state.put state
         movesComplete := False
 
@@ -124,71 +111,87 @@ mkSearchCore = module
   currentMove :: Reg Move <- mkReg _
 
   rules
-    "gen_state": when stackSize > 0 ==> state := move topFrame.moves.first topFrame.state
-    "use_query_state": when stackSize == 0 ==> state := queries.first.state
+    "get_query_state": when stackSize == 0 ==> state := queries.first.state
+    "get_move_state": when stackSize > 0 ==> state := move stateMove topFrame.state
+
     "eval_state": when True ==> do
       stateHeuristicScore := heuristicScore state
       currentPlayerInCheck := inCheck state.board topFrame.state.turn
       otherPlayerInCheck := inCheck state.board (otherColor topFrame.state.turn)
 
-    "put_NextMove": when not movesComplete, NextMove m <- eval.move.first ==> do
-      -- $display (padDepth stackSize) stackSize " put_NextMove " (cshow m)
-      topFrame.moves.enq m
-      eval.move.deq
-    "put_NoMove": when not movesComplete, NoMove <- eval.move.first ==> do
-      -- $display (padDepth stackSize) stackSize " put_NoMove"
-      movesComplete := True
-      eval.move.deq
-    "discard_overflow_state": when not movesComplete, stackSize > 0, not currentPlayerInCheck, not isTerminal, not topFrame.moves.notFull ==> do
-      $display (padDepth stackSize) stackSize " discard_overflow_state " (cshow topFrame.moves.first)
-      topFrame.moves.deq
+  let frameRules frameIndex =
+        let nextFrame = if frameIndex < valueOf maxDepth - 1 then stack !! (frameIndex + 1) else _
+            currentFrame = stack !! frameIndex
+            prevFrame = if frameIndex > 0 then stack !! (frameIndex - 1) else _
+        in
+          rules
+            when stackSize > 0, stackSize - 1 == fromInteger frameIndex
+              rules
+                ("state_move_" +++ integerToString frameIndex): when True ==> stateMove := currentFrame.moves.first
 
-    "ignore_check_state": when stackSize > 0, currentPlayerInCheck ==> do
-      $display (padDepth stackSize) stackSize " ignore_check_state " (cshow topFrame.moves.first)
-      topFrame.moves.deq
+                ("put_NextMove_" +++ integerToString frameIndex): when not movesComplete, NextMove m <- eval.move.first ==> do
+                  -- $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " put_NextMove " (cshow m)
+                  currentFrame.moves.enq m
+                  eval.move.deq
+                ("put_NoMove_" +++ integerToString frameIndex): when not movesComplete, NoMove <- eval.move.first ==> do
+                  -- $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " put_NoMove"
+                  movesComplete := True
+                  eval.move.deq
+                ("discard_overflow_state_" +++ integerToString frameIndex): when not movesComplete, not currentPlayerInCheck, fromInteger frameIndex < depth, not currentFrame.moves.notFull ==> do
+                  $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " discard_overflow_state " (cshow currentFrame.moves.first)
+                  currentFrame.moves.deq
 
-    "heuristic_state": when stackSize > 0, not currentPlayerInCheck, isTerminal ==> do
-      $display (padDepth stackSize) stackSize " heuristic_state " (cshow topFrame.moves.first) " " stateHeuristicScore
-      isBestScore <- topFrame.putScore $ negate stateHeuristicScore
-      if stackSize == 1 && isBestScore then bestMove := topFrame.moves.first else noAction
-      topFrame.moves.deq
+                ("ignore_check_state_" +++ integerToString frameIndex): when currentPlayerInCheck ==> do
+                  $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " ignore_check_state " (cshow currentFrame.moves.first)
+                  currentFrame.moves.deq
 
+                ("heuristic_state_" +++ integerToString frameIndex): when not currentPlayerInCheck, fromInteger frameIndex >= depth ==> do
+                  $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " heuristic_state " (cshow currentFrame.moves.first) " " stateHeuristicScore
+                  isBestScore <- currentFrame.putScore $ negate stateHeuristicScore
+                  if frameIndex == 0 && isBestScore then bestMove := currentFrame.moves.first else noAction
+                  currentFrame.moves.deq
+
+                when movesComplete
+                  rules
+                    ("push_state_" +++ integerToString frameIndex): when not currentPlayerInCheck, fromInteger frameIndex < depth ==> do
+                      $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " push_state " (cshow currentFrame.moves.first) " " stateHeuristicScore
+                      putState nextFrame
+                      if frameIndex == 0 then currentMove := currentFrame.moves.first else noAction
+                      currentFrame.moves.deq
+                      stackSize := fromInteger frameIndex + 2
+
+                    ("pop_state_" +++ integerToString frameIndex): when frameIndex > 0, not currentFrame.moves.notEmpty ==> do
+                      $display (List.foldr (+++) "" $ List.replicate frameIndex "  ") frameIndex " pop_state " currentFrame.score
+                      isBestScore <- prevFrame.putScore $ negate currentFrame.score
+                      if frameIndex == 1 && isBestScore then bestMove := currentMove else noAction
+                      stackSize := fromInteger frameIndex
+
+  addRules $ foldr1 rJoin ((genWith frameRules) :: Vector maxDepth Rules)
+
+  rules
     when movesComplete
       rules
-        "push_state": when stackSize > 0, not currentPlayerInCheck, not isTerminal ==> do
-          $display (padDepth stackSize) stackSize " push_state " (cshow topFrame.moves.first) " " stateHeuristicScore
-          putState
-          if stackSize == 1 then currentMove := topFrame.moves.first else noAction
-          topFrame.moves.deq
-          stackSize := stackSize + 1
-
-        "pop_state": when stackSize > 1, not topFrame.moves.notEmpty ==> do
-          $display (padDepth stackSize) stackSize " pop_state " topFrame.score
-          isBestScore <- prevFrame.putScore $ negate topFrame.score
-          if stackSize == 2 && isBestScore then bestMove := currentMove else noAction
-          stackSize := stackSize - 1
-
         "push_query_state": when stackSize == 0 ==> do
-          $display (padDepth stackSize) stackSize " push_query_state " (cshow queries.first)
+          $display stackSize " push_query_state " (cshow queries.first)
           depth := queries.first.depth
-          putState
+          putState bottomFrame
           stackSize := 1
           queries.deq
 
-        "pop_result_state": when stackSize == 1, not topFrame.moves.notEmpty ==> do
+        "pop_result_state": when stackSize == 1, not bottomFrame.moves.notEmpty ==> do
           let result = SearchResult {
-                bestMove = if topFrame.hasMove then Just bestMove else Nothing;
-                score=topFrame.score;
+                bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
+                score=bottomFrame.score;
                 depth=depth;
-              }
-          $display (padDepth stackSize) stackSize " pop_result_state " (cshow result)
+               }
+          $display "  " stackSize " pop_result_state " (cshow result)
           results.enq result
           stackSize := 0
 
   interface
     query = toPut queries
     result = toGet results
-    status = pack stackSize --pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (depth > 0) ++ pack (impCondOf currentPlayerInCheck) ++ ((truncate $ pack stackSize) :: Bit 4)
+    status = pack movesComplete ++ pack topFrame.moves.notEmpty ++ pack (depth > 0) ++ pack (impCondOf currentPlayerInCheck) ++ ((truncate $ pack stackSize) :: Bit 4)
 
 {-# verilog mkDefaultSearchCore #-}
 mkDefaultSearchCore :: Module (SearchCore 8)
