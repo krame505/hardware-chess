@@ -45,6 +45,7 @@ struct State =
   board :: Board
   whiteHist :: PlayerHistory
   blackHist :: PlayerHistory
+  lastProgressMove :: UInt 6
  deriving (Eq, Bits)
 
 data Move
@@ -107,6 +108,7 @@ initialState = State {
     (map (\ k -> Just (Piece {color=White; kind=k;})) $ vec Rook Knight Bishop Queen King Bishop Knight Rook);
   whiteHist = initialHist;
   blackHist = initialHist;
+  lastProgressMove = 0;
 }
 
 selectPos :: Board -> Position -> Maybe Piece
@@ -143,6 +145,11 @@ move (Move {from; to;} ) s =
       kRookMoved = s.blackHist.kRookMoved || (p == Just (Piece {color=Black; kind=Rook;}) && from.rank == 0 && from.file == 7);
       qRookMoved = s.blackHist.qRookMoved || (p == Just (Piece {color=Black; kind=Rook;}) && from.rank == 0 && from.file == 0);
     };
+    lastProgressMove =
+      (case p of
+         Just (Piece {kind=Pawn;}) -> 0
+         _ -> if isJust $ selectPos s.board to then 0 else s.lastProgressMove + 1
+      );
   }
 move (Promote {kind=newKind; from; to;}) s =
   State {
@@ -160,6 +167,7 @@ move (Promote {kind=newKind; from; to;}) s =
       kRookMoved = s.blackHist.kRookMoved;
       qRookMoved = s.blackHist.qRookMoved;
     };
+    lastProgressMove = 0;
   }
 move (Castle {kingSide}) s =
   State {
@@ -183,6 +191,7 @@ move (Castle {kingSide}) s =
       kRookMoved = s.blackHist.kRookMoved || (s.turn == Black && kingSide);
       qRookMoved = s.blackHist.qRookMoved || (s.turn == Black && not kingSide);
     };
+    lastProgressMove = s.lastProgressMove + 1;
   }
 
 dispInBounds :: Position -> (Integer, Integer) -> Bool

@@ -92,6 +92,7 @@ _mkChessDriver = module
       eval.move.deq
     "report_NoMove": when NoMove <- eval.move.first ==> do
       let outcome :: Outcome =
+            if state.lastProgressMove >= 50 then Draw else
             case (isInCheck, hasMoves) of
               (False, False) -> Draw
               (False, True) -> NoOutcome
