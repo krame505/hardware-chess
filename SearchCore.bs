@@ -127,7 +127,7 @@ mkSearchCore = module
             currentFrame = stack !! frameIndex
             prevFrame = if frameIndex > 0 then stack !! (frameIndex - 1) else _
             isDraw = state.lastProgressMove >= 50
-            isTerminal = fromInteger frameIndex >= depth || isDraw
+            isTerminal = fromInteger frameIndex >= depth - 1 || isDraw
         in
           rules
             when stackSize > 0, stackSize - 1 == fromInteger frameIndex
