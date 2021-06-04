@@ -31,6 +31,7 @@ def status():
     if s := client.jsonStatus():
         return s
     else:
+        print("Error getting status")
         return Response(status=503)
 
 @app.route("/move/<i>")

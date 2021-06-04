@@ -56,9 +56,6 @@ def strMove(state, move):
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
-minDepth = 1
-maxDepth = 8
-
 class ChessClient(msgclient.Client):
     def __init__(self, serial, callback, timeout=5):
         super().__init__("ChessMsgs", ffi, lib, serial)
@@ -72,7 +69,7 @@ class ChessClient(msgclient.Client):
         self.whiteAI = False
         self.blackAI = True
         self.timeout = timeout
-        self.depth = minDepth
+        self.depth = 1
         self.bestMove = None
         self.searchTimer = None
 
@@ -113,25 +110,25 @@ class ChessClient(msgclient.Client):
                 ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
                 self.startSearch()
         while searchResult := self.get("searchResult"):
-            #print("Got search move")
             if self.searchTimer is not None and searchResult.rid == self.stateId and searchResult.bestMove.tag == lib.Maybe_Move_Valid:
-                #print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid))
+                print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid))
                 self.bestMove = ffi.new("Move *", searchResult.bestMove.contents.Valid)[0]
-                if self.depth < maxDepth:
-                    self.depth += 1
-                    #print("Deepening to depth", self.depth)
-                    self.requestSearchMove()
+                self.depth += 1
+                print("Deepening to depth", self.depth)
+                self.requestSearchMove()
+            else:
+                print("Did not get a valid search move")
 
         if update:
             self.callback(self.event)
 
     def startSearch(self):
-        #print("Getting search move", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
-        self.depth = minDepth
+        print("Getting search move for", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
+        self.depth = 1
         self.requestSearchMove()
 
         def sendSearchMove():
-            #print("Sending search move")
+            print("Sending best move")
             if self.bestMove is None:
                 raise RuntimeError("Search move not ready")
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
@@ -174,4 +171,5 @@ class ChessClient(msgclient.Client):
     def config(self, whiteAI, blackAI):
         self.whiteAI = whiteAI
         self.blackAI = blackAI
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+        if self.searchTimer is None:
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])

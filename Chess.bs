@@ -306,12 +306,14 @@ data MoveResponse = NextMove Move
 interface MoveEval =
   state :: Put State
   move :: GetS MoveResponse
+  clear :: Action
 
 {-# verilog mkMoveEval #-}
 mkMoveEval :: Module MoveEval
 mkMoveEval = module
   states :: FIFO State <- mkFIFO
   moves :: FIFO MoveResponse <- mkFIFO
+  clearCommand :: PulseWire <- mkPulseWire
   let state = states.first
       board = state.board
       turn = state.turn
@@ -409,6 +411,13 @@ mkMoveEval = module
   moveEval <- liftM (foldr1 joinMoveRule) $ sequence moveRules
 
   addRules $
+    (rules
+       "clear": when clearCommand ==> do
+         states.clear
+         moves.clear
+         evalPos := Position {rank = 0; file = 0;}
+         moveEval.reset
+    ) <+
     moveEval.moveRules (moves.enq `compose` NextMove) <+
     rules
       when moveEval.finished
@@ -433,3 +442,4 @@ mkMoveEval = module
   interface
     state = toPut states
     move = fifoToGetS moves
+    clear = clearCommand.send
