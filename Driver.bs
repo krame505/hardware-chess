@@ -6,12 +6,14 @@ import GenCMsg
 import GenCRepr
 import GetPut
 import Connectable
+import Clocks
 import COBS
 import CShow
 
 data Command = GetState
              | Move Move
-             | GetSearchMove Depth
+             | GetSearchMove { rid :: RequestId; depth :: Depth; }
+             | CancelSearch
              | Reset
   deriving (Bits)
 
@@ -23,7 +25,7 @@ interface ChessMsgs =
   state :: Tx 2 2 State
   outcome :: Tx 2 2 Outcome
   moves :: Tx 64 8 MoveResponse
-  searchMove :: Tx 2 2 (Maybe Move)
+  searchResult :: Tx 2 2 SearchResult
 
 interface ChessDriver =
   txData :: Get (Bit 8)
@@ -49,10 +51,15 @@ _mkChessDriver = module
 
   state :: Reg State <- mkReg initialState
   eval :: MoveEval <- mkMoveEval
-  searchCore <- mkDefaultSearchCore
+
+  currentClock <- exposeCurrentClock
+  searchCoreReset <- mkReset 1 True currentClock
+  searchCore <- changeSpecialWires Nothing (Just searchCoreReset.new_rst) Nothing mkDefaultSearchCore
+
   let updateState newState = do
         state := newState
         eval.state.put newState
+        searchCoreReset.assertReset
         msgMgr.fifos.state.enq newState
 
   checkEvalState :: Wire State <- mkWire
@@ -68,8 +75,11 @@ _mkChessDriver = module
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
       updateState $ move m state
       msgMgr.fifos.command.deq
-    "handle_GetSearchMove": when GetSearchMove depth <- msgMgr.fifos.command.first ==> do
-      searchCore.query.put $ SearchQuery {state=state; depth=depth;}
+    "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first, not searchCoreReset.isAsserted ==> do
+      searchCore.query.put $ SearchQuery {rid=rid; state=state; depth=depth;}
+      msgMgr.fifos.command.deq
+    "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
+      searchCoreReset.assertReset
       msgMgr.fifos.command.deq
     "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
       updateState $ initialState
@@ -102,9 +112,9 @@ _mkChessDriver = module
       msgMgr.fifos.outcome.enq outcome
       hasMoves := False
       eval.move.deq
-    "report_search_move": when True ==> do
+    "report_search_move": when not searchCoreReset.isAsserted ==> do
       result <- searchCore.result.get
-      msgMgr.fifos.searchMove.enq result.bestMove
+      msgMgr.fifos.searchResult.enq result
 
   interface
     txData = enc.byte

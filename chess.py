@@ -2,6 +2,8 @@ import sys
 sys.path.append("../bsc-contrib/Libraries/GenC/GenCMsg")
 sys.path.append("bin")
 
+import time
+import threading
 import json
 import msgclient
 from _chess import ffi, lib
@@ -54,20 +56,25 @@ def strMove(state, move):
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
-depth = 4
+minDepth = 2
+maxDepth = 8
 
 class ChessClient(msgclient.Client):
-    def __init__(self, serial, callback):
+    def __init__(self, serial, callback, timeout=5):
         super().__init__("ChessMsgs", ffi, lib, serial)
         self.callback = callback
         self.event = "Initialized"
         self.state = None
+        self.stateId = 0
         self._movesAccum = []
         self.moves = []
         self.outcome = None
         self.whiteAI = False
         self.blackAI = True
-        self.awaitingSearchMove = False
+        self.timeout = timeout
+        self.depth = minDepth
+        self.bestMove = None
+        self.searchTimer = None
 
     def start(self):
         super().start()
@@ -79,6 +86,7 @@ class ChessClient(msgclient.Client):
         update = False
         while state := self.get("state"):
             self.state = state
+            self.stateId = (self.stateId + 1) % 256
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
@@ -101,28 +109,46 @@ class ChessClient(msgclient.Client):
                 elif self.outcome == lib.Outcome_Draw:
                     self.event += " - Draw"
                     update = True
-            self.getSearchMove()
-        while searchMove := self.get("searchMove"):
+            if ((self.outcome == lib.Outcome_NoOutcome or self.outcome == lib.Outcome_Check) and
+                ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
+                self.startSearch()
+        while searchResult := self.get("searchResult"):
             #print("Got search move")
-            self.awaitingSearchMove = False
-            if searchMove.tag == lib.Maybe_Move_Valid:
-                self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': searchMove.contents.Valid}})[0])
-                self.event = strMove(self.state, searchMove.contents.Valid)
-                self.outcome = None
-            else:
-                # Retry
-                self.getSearchMove()
+            if self.searchTimer is not None and searchResult.rid == self.stateId and searchResult.bestMove.tag == lib.Maybe_Move_Valid:
+                #print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid))
+                self.bestMove = ffi.new("Move *", searchResult.bestMove.contents.Valid)[0]
+                if self.depth < maxDepth:
+                    self.depth += 1
+                    #print("Deepening to depth", self.depth)
+                    self.requestSearchMove()
 
         if update:
             self.callback(self.event)
 
-    def getSearchMove(self):
-        if (not self.awaitingSearchMove and
-            (self.outcome == lib.Outcome_NoOutcome or self.outcome == lib.Outcome_Check) and
-            ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
-            #print("Getting search move", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
-            self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove, 'contents': {'GetSearchMove': depth}})[0])
-            self.awaitingSearchMove = True
+    def startSearch(self):
+        #print("Getting search move", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
+        self.depth = minDepth
+        self.requestSearchMove()
+
+        def sendSearchMove():
+            #print("Sending search move")
+            if self.bestMove is None:
+                raise RuntimeError("Search move not ready")
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
+            self.event = strMove(self.state, self.bestMove)
+            self.bestMove = None
+            self.outcome = None
+            self.searchTimer = None
+        self.searchTimer = threading.Timer(self.timeout, sendSearchMove)
+        self.searchTimer.start()
+
+    def cancelSearch(self):
+        if self.searchTimer is not None:
+            self.searchTimer.cancel()
+            self.searchTimer = None
+
+    def requestSearchMove(self):
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove, 'contents': {'GetSearchMove': {'rid': self.stateId, 'depth': self.depth}}})[0])
 
     def jsonStatus(self):
         if self.state:

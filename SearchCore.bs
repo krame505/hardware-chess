@@ -9,6 +9,7 @@ import Connectable
 import Vector
 import CShow
 
+type RequestId = UInt 8
 type Depth = UInt 8
 type Score = Int 8
 type MoveCount = UInt 8
@@ -32,11 +33,13 @@ heuristicScore state =
   in foldr1 (+) $ map squareScore $ concat state.board
 
 struct SearchQuery =
+  rid :: RequestId
   state :: State
   depth :: Depth
  deriving (Bits)
 
 struct SearchResult =
+  rid :: RequestId
   bestMove :: Maybe Move
   score :: Score
   depth :: Depth
@@ -175,7 +178,7 @@ mkSearchCore = module
       rules
         "invalid_query_depth": when stackSize == 0, queries.first.depth > fromInteger (valueOf maxDepth) ==> do
           $display stackSize " invalid_query_depth " (cshow queries.first)
-          results.enq $ SearchResult {bestMove=Nothing; score=bottomFrame.score; depth=queries.first.depth;}
+          results.enq $ SearchResult {rid=queries.first.rid; bestMove=Nothing; score=bottomFrame.score; depth=queries.first.depth;}
           queries.deq
 
         "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
@@ -183,16 +186,17 @@ mkSearchCore = module
           depth := queries.first.depth
           putState bottomFrame
           stackSize := 1
-          queries.deq
 
         "pop_result_state": when stackSize == 1, not bottomFrame.moves.notEmpty ==> do
           let result = SearchResult {
+                rid = queries.first.rid;
                 bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
-                score=bottomFrame.score;
-                depth=depth;
+                score = bottomFrame.score;
+                depth = depth;
                }
           $display "  " stackSize " pop_result_state " (cshow result)
           results.enq result
+          queries.deq
           stackSize := 0
 
   interface
