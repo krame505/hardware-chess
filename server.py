@@ -20,7 +20,7 @@ client.start()
 
 from flask import Flask, render_template, redirect, Response
 app = Flask(__name__)
-app.debug = True
+#app.debug = True
 
 @app.route("/")
 def index():
@@ -46,6 +46,11 @@ def reset():
 @app.route("/config/<whiteAI>,<blackAI>")
 def config(whiteAI, blackAI):
     client.config(whiteAI == 'true', blackAI == 'true')
+    return ""
+
+@app.route("/timeout/<timeout>")
+def timeout(timeout):
+    client.timeout = int(timeout)
     return ""
 
 @app.route("/events")

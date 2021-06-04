@@ -56,7 +56,7 @@ def strMove(state, move):
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
-minDepth = 2
+minDepth = 1
 maxDepth = 8
 
 class ChessClient(msgclient.Client):
@@ -152,7 +152,13 @@ class ChessClient(msgclient.Client):
 
     def jsonStatus(self):
         if self.state:
-            return json.dumps({'state': cdata_dict(self.state), 'moves': list(map(cdata_dict, self.moves))})
+            return json.dumps({
+                'state': cdata_dict(self.state),
+                'moves': list(map(cdata_dict, self.moves)),
+                'whiteAI': self.whiteAI,
+                'blackAI': self.blackAI,
+                'timeout': self.timeout,
+            })
 
     def move(self, i):
         if (self.state.turn.tag == lib.Color_Black and not self.blackAI) or (self.state.turn.tag == lib.Color_White and not self.whiteAI):

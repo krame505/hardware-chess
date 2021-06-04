@@ -50,6 +50,9 @@ function update() {
       state = s.state
       moves = s.moves
 
+      whiteAI.checked = s.whiteAI
+      blackAI.checked = s.blackAI
+      timeout.value = s.timeout
       turn.innerHTML = state.turn + "'s turn"
       
       while (board.rows.length) {
@@ -98,6 +101,10 @@ function reset() {
 
 function updateConfig() {
   $.ajax({url: "config/" + whiteAI.checked + "," + blackAI.checked})
+}
+
+function updateTimeout() {
+  $.ajax({url: "timeout/" + timeout.value})
 }
 
 var selected = null
