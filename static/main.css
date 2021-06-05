@@ -1,21 +1,45 @@
-.board {
-  border-collapse: collapse;
-  table-layout: fixed;
-  margin-bottom: 20px;
+:root {
+    --board-size: max(min(100vw, calc(100vh - 20rem)), 18rem)
 }
 
-.edgeCell {
-  width: 60px;
-  height: 60px;
-  border: 0px;
-  text-align: center;
-  font-size: xxx-large;
+@media (prefers-color-scheme: dark) {
+  body {
+    color: #eee;
+    background: #121212;
+  }
+}
+
+input {
+    width: 3em;
+}
+
+.board {
+    border-collapse: collapse;
+    table-layout: fixed;
+    width: var(--board-size);
+    height: var(--board-size);
+}
+
+.sideCell {
+    border: 0px;
+    text-align: center;
+    font-size: calc(var(--board-size) / 25);
+    width: calc(var(--board-size) / 18);
+    height: calc(var(--board-size) / 9);
+}
+
+.topBottomCell {
+    border: 0px;
+    text-align: center;
+    font-size: calc(var(--board-size) / 25);
+    width: calc(var(--board-size) / 9);
+    height: calc(var(--board-size) / 18);
 }
 
 .boardCell {
-  width: 60px;
-  height: 60px;
-  border: 2px solid black;
-  text-align: center;
-  font-size: xxx-large;
+    border: 0.07em solid black;
+    text-align: center;
+    width: calc(var(--board-size) / 9);
+    height: calc(var(--board-size) / 9);
+    font-size: calc(var(--board-size) / 14);
 }

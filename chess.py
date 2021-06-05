@@ -36,7 +36,7 @@ blackPieces = {'King': '♚', 'Queen': '♛', 'Rook': '♜', 'Bishop': '♝', 'K
 
 def strPiece(p):
     pieceName = ffi.string(ffi.cast('enum PieceKind_tag', p.kind.tag))[len('PieceKind_'):]
-    return (whitePieces if p.color.tag == lib.Color_White else blackPieces)[pieceName]
+    return (whitePieces if p.color.tag == lib.Color_White else blackPieces)[pieceName] + '\uFE0E'
 
 def strPosition(pos):
     return chr(ord('a') + pos.file) + str(8 - pos.rank)

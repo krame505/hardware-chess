@@ -14,14 +14,8 @@ function init() {
   updateConfig()
 }
 
-function pieceChar(kind) {
-  if (kind == 'King') return '♚'
-  else if (kind == 'Queen') return '♛'
-  else if (kind == 'Rook') return '♜'
-  else if (kind == 'Bishop') return '♝'
-  else if (kind == 'Knight') return '♞'
-  else if (kind == 'Pawn') return '♟'
-}
+const whitePieces = {'King': '♔', 'Queen': '♕', 'Rook': '♖', 'Bishop': '♗', 'Knight': '♘', 'Pawn': '♙'}
+const blackPieces = {'King': '♚', 'Queen': '♛', 'Rook': '♜', 'Bishop': '♝', 'Knight': '♞', 'Pawn': '♟'}
 
 var state = null
 var moves = []
@@ -66,13 +60,13 @@ function update() {
       }
       for (i = 0; i < 8; i++) {
         board.rows[0].cells[i + 1].innerHTML = (i + 10).toString(36)
-        board.rows[0].cells[i + 1].className = "edgeCell"
+        board.rows[0].cells[i + 1].className = "topBottomCell"
         board.rows[9].cells[i + 1].innerHTML = (i + 10).toString(36)
-        board.rows[9].cells[i + 1].className = "edgeCell"
+        board.rows[9].cells[i + 1].className = "topBottomCell"
         board.rows[i + 1].cells[0].innerHTML = 8 - i
-        board.rows[i + 1].cells[0].className = "edgeCell"
+        board.rows[i + 1].cells[0].className = "sideCell"
         board.rows[i + 1].cells[9].innerHTML = 8 - i
-        board.rows[i + 1].cells[9].className = "edgeCell"
+        board.rows[i + 1].cells[9].className = "sideCell"
       }
       for (rank = 0; rank < 8; rank++) {
         for (file = 0; file < 8; file++) {
@@ -83,8 +77,9 @@ function update() {
           cell.onclick = function () { handleSelect(pos) }
           square = state.board[rank][file]
           if (square.occupied) {
-            cell.innerHTML = pieceChar(square.piece.kind)
-            cell.style.color = square.piece.color
+            cell.innerHTML = blackPieces[square.piece.kind]// + "\uFE0E"
+            cell.style.color = 'transparent'
+            cell.style.textShadow = '0 0 0 ' + square.piece.color
           }
         }
       }
