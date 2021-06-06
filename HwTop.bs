@@ -30,8 +30,18 @@ mkTop = module
   driverRx <- mkConverter 2 driver.rxData
 
   uart :: UART 8 <- mkUART 8 NONE STOP_1 (fromInteger $ clockFreq / (baud * 16))
-  driverTx <-> uart.rx
-  uart.tx <-> driverRx
+
+  -- Wait for first byte to be recieved before sending data
+  writeEnable <- mkReg False
+  rules
+    "tx": when writeEnable ==> do
+      c <- driverTx.get
+      uart.rx.put c
+
+    "rx": when True ==> do
+      c <- uart.tx.get
+      driverRx.put $ truncate $ pack c
+      writeEnable := True
 
   driverStatus <- mkConverter 2 $ toGet driver.status
   lastStatus :: Reg (Bit 8) <- mkReg 0
