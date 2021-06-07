@@ -4,6 +4,7 @@ import Chess
 import SearchCore
 import CShow
 import GetPut
+import ClientServer
 
 searchDepth :: Depth
 searchDepth = 3
@@ -11,22 +12,22 @@ searchDepth = 3
 {-# verilog sysChessVSim #-}
 sysChessVSim :: Module Empty
 sysChessVSim = module
-  searchCore <- mkDefaultSearchCore
+  searchCore <- mkParallelSearchCore
   state <- mkReg initialState
 
   init <- mkReg False
   rules
     "init": when not init ==> do
       $display (cshow state)
-      searchCore.query.put $ SearchQuery {state=state; depth=searchDepth;}
+      searchCore.server.request.put $ SearchQuery {rid=0; state=state; depth=searchDepth; alpha=Nothing; beta=Nothing;}
       init := True
     "move": when init ==> do
-      result <- searchCore.result.get
+      result <- searchCore.server.response.get
       $display (cshow result)
       case result.bestMove of
         Just m -> do
           let newState = move m state
           $display newState
           state := newState
-          searchCore.query.put $ SearchQuery {state=newState; depth=searchDepth;}
+          searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=searchDepth; alpha=Nothing; beta=Nothing;}
         Nothing -> $finish

@@ -3,9 +3,10 @@ package SearchCore where
 import Chess
 import FIFO
 import FIFOF
-import BRAMFIFO
 import GetPut
+import ClientServer
 import Connectable
+import qualified List
 import Vector
 import CShow
 
@@ -20,27 +21,14 @@ maxScore :: Score
 maxScore = maxBound
 
 moveQueueSize :: Integer
-moveQueueSize = 100
-
-pieceValue :: PieceKind -> Score
-pieceValue Pawn = 1
-pieceValue Knight = 3
-pieceValue Bishop = 3
-pieceValue Rook = 5
-pieceValue Queen = 9
-pieceValue King = 0
-
-heuristicScore :: State -> Score
-heuristicScore state =
-  let squareScore Nothing = 0
-      squareScore (Just piece) =
-        (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
-  in foldr1 (+) $ map squareScore $ concat state.board
+moveQueueSize = 60
 
 struct SearchQuery =
   rid :: RequestId
   state :: State
   depth :: Depth
+  alpha :: Maybe Score
+  beta :: Maybe Score
  deriving (Bits)
 
 struct SearchResult =
@@ -64,7 +52,7 @@ mkFrame :: Module Frame
 mkFrame = module
   state <- mkReg _
   inCheck <- mkReg False
-  moves <- {- mkSizedBRAMFIFOF -} mkSizedFIFOF moveQueueSize
+  moves <- mkSizedFIFOF moveQueueSize
   hasMove <- mkReg False
   bestScore <- mkReg 0
   alpha <- mkReg minScore
@@ -94,17 +82,18 @@ mkFrame = module
     moves = moves
 
 interface (SearchCore :: # -> *) maxDepth =
-  query :: Put SearchQuery
-  result :: Get SearchResult
+  server :: Server SearchQuery SearchResult
+  clear :: Action
 
   status :: Bit 8 {-# always_ready, always_enabled #-}
 
-mkSearchCore :: (Add 1 n maxDepth) => Module (SearchCore maxDepth)
-mkSearchCore = module
-  queries :: FIFO SearchQuery <- mkFIFO
+mkSearchCore :: (Add dispatchDepth 1 maxDepth) => (State -> Score) -> List (SearchCore dispatchDepth) -> Module (SearchCore maxDepth)
+mkSearchCore heuristic dispatchCores = module
+  queries :: FIFO SearchQuery <- mkSizedFIFO 1
   results :: FIFO SearchResult <- mkFIFO
 
-  depth :: Reg Depth <- mkReg 0
+  let rid = queries.first.rid
+  depth :: Reg Depth <- mkReg 0  -- This is a register in order to be always ready for the status
 
   stack :: Vector maxDepth Frame <- replicateM mkFrame
   stackSize :: Reg Depth <- mkReg 0
@@ -124,6 +113,8 @@ mkSearchCore = module
         eval.state.put state
         movesComplete := False
 
+  dispatchWaiting :: Reg (UInt 4) <- mkReg 0
+
   bestMove :: Reg Move <- mkReg _
   currentMove :: Reg Move <- mkReg _
 
@@ -132,7 +123,7 @@ mkSearchCore = module
     "get_move_state": when stackSize > 0 ==> state := move stateMove topFrame.state
 
     "eval_state": when True ==> do
-      stateHeuristicScore := heuristicScore state
+      stateHeuristicScore := heuristic state
       currentPlayerInCheck := inCheck state.board topFrame.state.turn
       otherPlayerInCheck := inCheck state.board (otherColor topFrame.state.turn)
 
@@ -160,11 +151,11 @@ mkSearchCore = module
                     ("state_move_" +++ integerToString frameIndex): when True ==> stateMove := currentFrame.moves.first
 
                     ("put_NextMove_" +++ integerToString frameIndex): when not movesComplete, NextMove m <- eval.move.first ==> do
-                      -- $display depthStr " put_NextMove " (cshow m)
+                      $display depthStr " put_NextMove " (cshow m)
                       currentFrame.moves.enq m
                       eval.move.deq
                     ("put_NoMove_" +++ integerToString frameIndex): when not movesComplete, NoMove <- eval.move.first ==> do
-                      -- $display depthStr " put_NoMove"
+                      $display depthStr " put_NoMove"
                       movesComplete := True
                       eval.move.deq
                     ("discard_overflow_state_" +++ integerToString frameIndex): when not movesComplete, not currentPlayerInCheck, not isTerminal, not currentFrame.moves.notFull ==> do
@@ -196,41 +187,145 @@ mkSearchCore = module
                           if frameIndex == 1 && isBestScore then bestMove := currentMove else noAction
                           stackSize := fromInteger frameIndex
 
-  addRules $ foldr1 rJoin ((genWith frameRules) :: Vector maxDepth Rules)
+  let searchRules =
+        foldr1 rJoin ((genWith frameRules) :: Vector maxDepth Rules) <+>
+        rules
+          when movesComplete
+            rules
+              "invalid_query_depth": when stackSize == 0, depth > fromInteger (valueOf maxDepth) ==> do
+                $display "0 invalid_query_depth " (cshow queries.first)
+                results.enq $ SearchResult {rid=rid; bestMove=Nothing; score=bottomFrame.score; depth=depth;}
+                queries.deq
 
-  rules
-    when movesComplete
-      rules
-        "invalid_query_depth": when stackSize == 0, queries.first.depth > fromInteger (valueOf maxDepth) ==> do
-          $display (0 :: Depth) " invalid_query_depth " (cshow queries.first)
-          results.enq $ SearchResult {rid=queries.first.rid; bestMove=Nothing; score=bottomFrame.score; depth=queries.first.depth;}
-          queries.deq
+              "push_query_state": when stackSize == 0, depth <= fromInteger (valueOf maxDepth) ==> do
+                $display "0 push_query_state " (cshow queries.first)
+                depth := queries.first.depth
+                pushState bottomFrame (fromMaybe minScore queries.first.alpha) (fromMaybe maxScore queries.first.beta)
+                stackSize := 1
 
-        "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
-          $display (0 :: Depth) " push_query_state " (cshow queries.first)
-          depth := queries.first.depth
-          pushState bottomFrame minScore maxScore
-          stackSize := 1
+              "pop_result_state": when stackSize == 1, bottomFrame.alpha < bottomFrame.beta, not bottomFrame.moves.notEmpty && dispatchWaiting == 0 ==> do
+                let result = SearchResult {
+                      rid = rid;
+                      bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
+                      score = bottomFrame.score;
+                      depth = depth;
+                     }
+                $display "  1 pop_result_state " (cshow result)
+                results.enq result
+                queries.deq
+                stackSize := 0
 
-        "pop_result_state": when stackSize == 1, not bottomFrame.moves.notEmpty || bottomFrame.alpha >= bottomFrame.beta ==> do
-          let result = SearchResult {
-                rid = queries.first.rid;
-                bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
-                score = bottomFrame.score;
-                depth = depth;
-               }
-          $display "  " (1 :: Depth) " pop_result_state " (cshow result)
-          results.enq result
-          queries.deq
-          stackSize := 0
-          bottomFrame.moves.clear
-          eval.clear
+          "cutoff_result_state": when stackSize == 1, bottomFrame.alpha >= bottomFrame.beta ==> do
+            let result = SearchResult {
+                  rid = rid;
+                  bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
+                  score = bottomFrame.score;
+                  depth = depth;
+                }
+            $display "  1 cutoff_result_state " (cshow result)
+            results.enq result
+            queries.deq
+            stackSize := 0
+            dispatchWaiting := 0
+            bottomFrame.moves.clear
+            eval.clear
+            List.joinActions $ List.map (\ core -> (core :: SearchCore dispatchDepth).clear) dispatchCores
+
+  dispatchRules <-
+    if List.length dispatchCores > 0
+      then do
+        dispatchState :: Wire State <- mkWire
+        dispatchStateInCheck :: Wire Bool <- mkWire
+        addRules $
+          rules
+            "get_dispatch_state": when True ==>
+              dispatchState := move bottomFrame.moves.first bottomFrame.state
+            "eval_dispatch_state": when True ==>
+              dispatchStateInCheck := inCheck dispatchState.board bottomFrame.state.turn
+
+        dispatchMoves :: List (Reg Move) <- List.replicateM (List.length dispatchCores) $ mkReg _
+        let dispatchRules i =
+              (rules
+                 ("dispatch_query_" +++ integerToString i): when depth > 2, bottomFrame.alpha < bottomFrame.beta, not dispatchStateInCheck ==> do
+                   let query = SearchQuery {
+                     rid = rid;
+                     state = dispatchState;
+                     depth = depth - 1;
+                     alpha = Just $ negate bottomFrame.beta;
+                     beta = Just $ negate bottomFrame.alpha;
+                   }
+                   $display ("dispatch_query_" +++ integerToString i +++ " ") (cshow bottomFrame.moves.first) " " (cshow query) " " dispatchWaiting
+                   dispatchMoves `List.select` i := bottomFrame.moves.first
+                   (dispatchCores `List.select` i).server.request.put query
+                   bottomFrame.moves.deq
+                   dispatchWaiting := dispatchWaiting + 1
+              ) <+
+              (rules
+                 ("handle_dispatch_result_" +++ integerToString i): when stackSize > 0 ==> do
+                   result <- (dispatchCores `List.select` i).server.response.get
+                   $display ("handle_dispatch_result_" +++ integerToString i +++ " ") (cshow result) " " dispatchWaiting
+                   if result.rid == rid
+                     then do
+                       dispatchWaiting := dispatchWaiting - 1
+                       bestScore <- bottomFrame.putScore $ negate result.score
+                       if bestScore then bestMove := (dispatchMoves `List.select` i)._read else noAction
+                     else noAction
+              )
+        return $
+          (rules
+            "ignore_dispatch_check_state": when dispatchStateInCheck ==> do
+              $display "ignore_dispatch_check_state " (cshow bottomFrame.moves.first) " " dispatchWaiting
+              bottomFrame.moves.deq
+          ) <+ (List.foldr1 preempts $ List.map dispatchRules $ 0 `List.upto` (List.length dispatchCores - 1))
+      else return emptyRules
+
+  clear :: PulseWire <- mkPulseWire
+  let clearRule =
+        rules
+          "clear": when clear ==> do
+            queries.clear
+            joinActions $ map (\ frame -> (frame :: Frame).moves.clear) stack
+            List.joinActions $ List.map (\ core  -> (core :: SearchCore dispatchDepth).clear) dispatchCores
+            stackSize := 0
+            dispatchWaiting := 0
+            eval.clear
+            movesComplete := True
+
+  addRules $ clearRule <+ (dispatchRules `rJoinDescendingUrgency` searchRules)
 
   interface
-    query = toPut queries
-    result = toGet results
+    server =
+      interface Server
+        request = toPut queries
+        response = toGet results
+    clear = clear.send
+
     status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4)
 
-{-# verilog mkDefaultSearchCore #-}
-mkDefaultSearchCore :: Module (SearchCore 15)
-mkDefaultSearchCore = mkSearchCore
+
+pieceValue :: PieceKind -> Score
+pieceValue Pawn = 1
+pieceValue Knight = 3
+pieceValue Bishop = 3
+pieceValue Rook = 5
+pieceValue Queen = 9
+pieceValue King = 0
+
+defaultHeuristic :: State -> Score
+defaultHeuristic state =
+  let squareScore Nothing = 0
+      squareScore (Just piece) =
+        (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
+  in foldr1 (+) $ map squareScore $ concat state.board
+
+
+{-# verilog mkSingleSearchCore #-}
+mkSingleSearchCore :: Module (SearchCore 14)
+mkSingleSearchCore = mkSearchCore defaultHeuristic Nil
+
+{-# verilog mkParallelSearchCore #-}
+mkParallelSearchCore :: Module (SearchCore 15)
+mkParallelSearchCore = do
+  worker1 <- mkSingleSearchCore
+  worker2 <- mkSingleSearchCore
+  mkSearchCore defaultHeuristic $ Cons worker1 $ Cons worker2 Nil

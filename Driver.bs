@@ -5,8 +5,8 @@ import SearchCore
 import GenCMsg
 import GenCRepr
 import GetPut
+import ClientServer
 import Connectable
-import Clocks
 import COBS
 import CShow
 
@@ -52,14 +52,12 @@ _mkChessDriver = module
   state :: Reg State <- mkReg initialState
   eval :: MoveEval <- mkMoveEval
 
-  currentClock <- exposeCurrentClock
-  searchCoreReset <- mkReset 1 True currentClock
-  searchCore <- changeSpecialWires Nothing (Just searchCoreReset.new_rst) Nothing mkDefaultSearchCore
+  searchCore <- mkParallelSearchCore
 
   let updateState newState = do
         state := newState
         eval.state.put newState
-        searchCoreReset.assertReset
+        searchCore.clear
         msgMgr.fifos.state.enq newState
 
   checkEvalState :: Wire State <- mkWire
@@ -75,11 +73,11 @@ _mkChessDriver = module
     "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
       updateState $ move m state
       msgMgr.fifos.command.deq
-    "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first, not searchCoreReset.isAsserted ==> do
-      searchCore.query.put $ SearchQuery {rid=rid; state=state; depth=depth;}
+    "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
+      searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth; alpha=Nothing; beta=Nothing;}
       msgMgr.fifos.command.deq
     "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
-      searchCoreReset.assertReset
+      searchCore.clear
       msgMgr.fifos.command.deq
     "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
       updateState $ initialState
@@ -112,8 +110,8 @@ _mkChessDriver = module
       msgMgr.fifos.outcome.enq outcome
       hasMoves := False
       eval.move.deq
-    "report_search_move": when not searchCoreReset.isAsserted ==> do
-      result <- searchCore.result.get
+    "report_search_move": when True ==> do
+      result <- searchCore.server.response.get
       msgMgr.fifos.searchResult.enq result
 
   interface

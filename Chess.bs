@@ -311,7 +311,7 @@ interface MoveEval =
 {-# verilog mkMoveEval #-}
 mkMoveEval :: Module MoveEval
 mkMoveEval = module
-  states :: FIFO State <- mkFIFO
+  states :: FIFO State <- mkSizedFIFO 1
   moves :: FIFO MoveResponse <- mkFIFO
   clearCommand :: PulseWire <- mkPulseWire
   let state = states.first
