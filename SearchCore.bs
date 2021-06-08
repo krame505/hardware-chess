@@ -204,12 +204,12 @@ mkSearchCore heuristic dispatchCores = module
         rules
           when movesComplete
             rules
-              "invalid_query_depth": when stackSize == 0, depth > fromInteger (valueOf maxDepth) ==> do
+              "invalid_query_depth": when stackSize == 0, queries.first.depth > fromInteger (valueOf maxDepth) ==> do
                 $display "0 invalid_query_depth " (cshow queries.first)
                 results.enq $ SearchResult {rid=rid; bestMove=Nothing; score=bottomFrame.score; depth=depth;}
                 queries.deq
 
-              "push_query_state": when stackSize == 0, depth <= fromInteger (valueOf maxDepth) ==> do
+              "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
                 $display "0 push_query_state " (cshow queries.first)
                 depth := queries.first.depth
                 pushState bottomFrame (fromMaybe minScore queries.first.alpha) (fromMaybe maxScore queries.first.beta)
