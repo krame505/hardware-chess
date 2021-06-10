@@ -74,7 +74,7 @@ _mkChessDriver = module
       updateState $ move m state
       msgMgr.fifos.command.deq
     "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
-      searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth; alpha=Nothing; beta=Nothing;}
+      searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth;}
       msgMgr.fifos.command.deq
     "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
       searchCore.clear

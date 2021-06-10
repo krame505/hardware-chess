@@ -19,7 +19,7 @@ sysChessVSim = module
   rules
     "init": when not init ==> do
       $display (cshow state)
-      searchCore.server.request.put $ SearchQuery {rid=0; state=state; depth=searchDepth; alpha=Nothing; beta=Nothing;}
+      searchCore.server.request.put $ SearchQuery {rid=0; state=state; depth=searchDepth;}
       init := True
     "move": when init ==> do
       result <- searchCore.server.response.get
@@ -29,5 +29,5 @@ sysChessVSim = module
           let newState = move m state
           $display newState
           state := newState
-          searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=searchDepth; alpha=Nothing; beta=Nothing;}
+          searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=searchDepth;}
         Nothing -> $finish

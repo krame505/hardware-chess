@@ -27,8 +27,6 @@ struct SearchQuery =
   rid :: RequestId
   state :: State
   depth :: Depth
-  alpha :: Maybe Score
-  beta :: Maybe Score
  deriving (Bits)
 
 struct SearchResult =
@@ -41,6 +39,8 @@ struct SearchResult =
 interface Frame =
   putState :: State -> Bool -> Score -> Score -> Action
   putScore :: Score -> ActionValue Bool
+  putAlpha :: Score -> Action
+  putBeta :: Score -> Action
   state :: State
   hasMove :: Bool
   score :: Score
@@ -71,6 +71,8 @@ mkFrame = module
          if isBestScore then bestScore := s else noAction
          if s > alpha then alpha := s else noAction
          return isBestScore
+    putAlpha a = if a > alpha then alpha := a else noAction
+    putBeta b = if b < beta then beta := b else noAction
     state = state
     hasMove = hasMove
     score =
@@ -83,6 +85,8 @@ mkFrame = module
 
 interface (SearchCore :: # -> *) stackSize =
   server :: Server SearchQuery SearchResult
+  updateAlpha :: Score -> Action
+  updateBeta :: Score -> Action
   clear :: Action
 
   status :: Bit 8 {-# always_ready, always_enabled #-}
@@ -91,6 +95,8 @@ mkSearchCore :: (Add dispatchDepth 1 maxDepth) => (State -> Score) -> Vector num
 mkSearchCore heuristic dispatchCores = module
   queries :: FIFO SearchQuery <- mkSizedFIFO 1
   results :: FIFO SearchResult <- mkFIFO
+  alphaUpdates :: FIFO Score <- mkFIFO
+  betaUpdates :: FIFO Score <- mkFIFO
 
   let rid = queries.first.rid
   depth :: Reg Depth <- mkReg 0  -- This is a register in order to be always ready for the status
@@ -151,11 +157,11 @@ mkSearchCore heuristic dispatchCores = module
                     ("state_move_" +++ integerToString frameIndex): when True ==> stateMove := currentFrame.moves.first
 
                     ("put_NextMove_" +++ integerToString frameIndex): when not movesComplete, NextMove m <- eval.move.first ==> do
-                      $display depthStr " put_NextMove " (cshow m)
+                      -- $display depthStr " put_NextMove " (cshow m)
                       currentFrame.moves.enq m
                       eval.move.deq
                     ("put_NoMove_" +++ integerToString frameIndex): when not movesComplete, NoMove <- eval.move.first ==> do
-                      $display depthStr " put_NoMove"
+                      -- $display depthStr " put_NoMove"
                       movesComplete := True
                       eval.move.deq
 
@@ -186,7 +192,11 @@ mkSearchCore heuristic dispatchCores = module
                         ("pop_state_" +++ integerToString frameIndex): when frameIndex > 0, not currentFrame.moves.notEmpty ==> do
                           $display depthStr " pop_state " currentFrame.score
                           isBestScore <- prevFrame.putScore $ negate currentFrame.score
-                          if frameIndex == 1 && isBestScore then bestMove := currentMove else noAction
+                          if frameIndex == 1
+                            then do
+                              if isBestScore then bestMove := currentMove else noAction
+                              joinActions $ map (\ c -> (c :: SearchCore dispatchDepth).updateBeta currentFrame.score) dispatchCores
+                            else noAction
                           stackSize := fromInteger frameIndex
 
   dispatchMoves :: Vector numDispatch (FIFOF Move) <- replicateM mkFIFOF
@@ -198,6 +208,8 @@ mkSearchCore heuristic dispatchCores = module
         stackSize := 0
         eval.clear
         movesComplete := True
+        alphaUpdates.clear
+        betaUpdates.clear
 
       searchRules =
         foldr1 rJoin ((genWith frameRules) :: Vector maxDepth Rules) <+>
@@ -212,7 +224,7 @@ mkSearchCore heuristic dispatchCores = module
               "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
                 $display "0 push_query_state " (cshow queries.first)
                 depth := queries.first.depth
-                pushState bottomFrame (fromMaybe minScore queries.first.alpha) (fromMaybe maxScore queries.first.beta)
+                pushState bottomFrame minScore maxScore
                 stackSize := 1
 
               "pop_result_state": when stackSize == 1, bottomFrame.alpha < bottomFrame.beta, not bottomFrame.moves.notEmpty && not (any (.notEmpty) dispatchMoves) ==> do
@@ -238,6 +250,17 @@ mkSearchCore heuristic dispatchCores = module
             results.enq result
             queries.deq
             reset
+
+      putFrameAlpha alpha i =
+        if i % 2 == 0
+        then (stack !! i).putAlpha alpha
+        else (stack !! i).putBeta (negate alpha)
+
+      putFrameBeta beta i =
+        if i % 2 == 0
+        then (stack !! i).putBeta beta
+        else (stack !! i).putAlpha (negate beta)
+
   dispatchRules <-
     if valueOf numDispatch > 0
       then do
@@ -257,18 +280,26 @@ mkSearchCore heuristic dispatchCores = module
                     rid = rid;
                     state = dispatchState;
                     depth = depth - 1;
-                    alpha = Just $ negate bottomFrame.beta;
-                    beta = Just $ negate bottomFrame.alpha;
                   }
                   $display ("dispatch_query_" +++ integerToString i +++ " ") (cshow bottomFrame.moves.first) " " (cshow query)
                   (dispatchMoves !! i).enq bottomFrame.moves.first
                   (dispatchCores !! i).server.request.put query
+                  (dispatchCores !! i).updateAlpha $ negate bottomFrame.beta
+                  (dispatchCores !! i).updateBeta $ negate bottomFrame.alpha
                   bottomFrame.moves.deq
                 ("handle_dispatch_result_" +++ integerToString i): when stackSize > 0 ==> do
                   result <- (dispatchCores !! i).server.response.get
                   $display ("handle_dispatch_result_" +++ integerToString i +++ " ") (cshow result)
                   bestScore <- bottomFrame.putScore $ negate result.score
                   if bestScore then bestMove := (dispatchMoves !! i).first else noAction
+                  joinActions $
+                    (genWith (\ j -> if j == 0
+                                     then noAction  -- Already handled by bottomFrame.putScore
+                                     else putFrameAlpha (negate result.score) j)) :: Vector maxDepth Action
+                  joinActions $
+                    (genWith (\ j -> if j == i
+                                     then noAction  -- Don't update the core that just produced the result
+                                     else (dispatchCores !! j).updateBeta result.score)) :: Vector numDispatch Action
                   (dispatchMoves !! i).deq
         return $
           (rules
@@ -279,14 +310,24 @@ mkSearchCore heuristic dispatchCores = module
       else return emptyRules
 
   clear :: PulseWire <- mkPulseWire
-  let clearRule =
+  let commandRules =
         rules
           "clear": when clear ==> do
             queries.clear
             results.clear
             reset
+          "update_alpha": when stackSize > 0 ==> do
+            let alpha = alphaUpdates.first
+            joinActions $ (genWith $ putFrameAlpha alpha) :: Vector maxDepth Action
+            joinActions $ map (\ c -> (c :: SearchCore dispatchDepth).updateBeta (negate alpha)) dispatchCores
+            alphaUpdates.deq
+          "update_beta": when stackSize > 0 ==> do
+            let beta = betaUpdates.first
+            joinActions $ (genWith $ putFrameBeta beta) :: Vector maxDepth Action
+            joinActions $ map (\ c -> (c :: SearchCore dispatchDepth).updateAlpha (negate beta)) dispatchCores
+            betaUpdates.deq
 
-  addRules $ clearRule <+ (dispatchRules `rJoinDescendingUrgency` searchRules)
+  addRules $ commandRules <+ (dispatchRules `rJoinDescendingUrgency` searchRules)
 
   interface
     server =
@@ -294,6 +335,8 @@ mkSearchCore heuristic dispatchCores = module
         request = toPut queries
         response = toGet results
     clear = clear.send
+    updateAlpha = alphaUpdates.enq
+    updateBeta = betaUpdates.enq
 
     status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4)
 
