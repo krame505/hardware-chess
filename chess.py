@@ -111,7 +111,7 @@ class ChessClient(msgclient.Client):
                 self.startSearch()
         while searchResult := self.get("searchResult"):
             if self.searchTimer is not None and searchResult.rid == self.stateId and searchResult.bestMove.tag == lib.Maybe_Move_Valid:
-                print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid))
+                print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid), searchResult.score)
                 self.bestMove = ffi.new("Move *", searchResult.bestMove.contents.Valid)[0]
                 self.depth += 1
                 print("Deepening to depth", self.depth)
