@@ -38,6 +38,7 @@ struct PlayerHistory =
   kingMoved :: Bool
   kRookMoved :: Bool
   qRookMoved :: Bool
+  castled :: Bool
  deriving (Eq, Bits)
 
 struct State =
@@ -92,6 +93,7 @@ initialHist = PlayerHistory {
   kingMoved = False;
   kRookMoved = False;
   qRookMoved = False;
+  castled = False;
 }
 
 initialState :: State
@@ -123,7 +125,7 @@ move (Move {from; to;} ) s =
   in State {
     turn = if s.turn == White then Black else White;
     board = updatePos (updatePos s.board from Nothing) to p;
-    whiteHist = PlayerHistory {
+    whiteHist = s.whiteHist {
       pawnMoved2 =
         if p == Just (Piece {color=White; kind=Pawn;})
         then if from.rank == 6 && to.rank == 4
@@ -134,7 +136,7 @@ move (Move {from; to;} ) s =
       kRookMoved = s.whiteHist.kRookMoved || (p == Just (Piece {color=White; kind=Rook;}) && from.rank == 7 && from.file == 7);
       qRookMoved = s.whiteHist.qRookMoved || (p == Just (Piece {color=White; kind=Rook;}) && from.rank == 7 && from.file == 0);
     };
-    blackHist = PlayerHistory {
+    blackHist = s.blackHist {
       pawnMoved2 =
         if p == Just (Piece {color=Black; kind=Pawn;})
         then if from.rank == 1 && to.rank == 3
@@ -155,18 +157,8 @@ move (Promote {kind=newKind; from; to;}) s =
   State {
     turn = if s.turn == White then Black else White;
     board = updatePos (updatePos s.board from Nothing) to $ Just $ Piece {color=s.turn; kind=newKind;};
-    whiteHist = PlayerHistory {
-      pawnMoved2 = Nothing;
-      kingMoved = s.whiteHist.kingMoved;
-      kRookMoved = s.whiteHist.kRookMoved;
-      qRookMoved = s.whiteHist.qRookMoved;
-    };
-    blackHist = PlayerHistory {
-      pawnMoved2 = Nothing;
-      kingMoved = s.blackHist.kingMoved;
-      kRookMoved = s.blackHist.kRookMoved;
-      qRookMoved = s.blackHist.qRookMoved;
-    };
+    whiteHist = s.whiteHist { pawnMoved2 = Nothing; };
+    blackHist = s.blackHist { pawnMoved2 = Nothing; };
     lastProgressMove = 0;
   }
 move (Castle {kingSide}) s =
@@ -184,12 +176,14 @@ move (Castle {kingSide}) s =
       kingMoved = s.whiteHist.kingMoved || s.turn == White;
       kRookMoved = s.whiteHist.kRookMoved || (s.turn == White && kingSide);
       qRookMoved = s.whiteHist.qRookMoved || (s.turn == White && not kingSide);
+      castled = s.turn == White;
     };
     blackHist = PlayerHistory {
       pawnMoved2 = Nothing;
       kingMoved = s.blackHist.kingMoved || s.turn == Black;
       kRookMoved = s.blackHist.kRookMoved || (s.turn == Black && kingSide);
       qRookMoved = s.blackHist.qRookMoved || (s.turn == Black && not kingSide);
+      castled = s.turn == White;
     };
     lastProgressMove = s.lastProgressMove + 1;
   }
@@ -269,6 +263,12 @@ kingPos board player =
 
 inCheck :: Board -> Color -> Bool
 inCheck board player = isThreatened board player $ kingPos board player
+
+isOccupied :: Board -> Color -> Position -> Bool
+isOccupied board player pos =
+  case selectPos board pos of
+    Just (Piece {color=p}) -> player == p
+    Nothing -> False
 
 promoKinds :: Vector 4 PieceKind
 promoKinds = vec Knight Bishop Rook Queen

@@ -1,0 +1,42 @@
+package Heuristic where
+
+import Vector
+import BuildVector
+import Chess
+
+type Score = Int 8
+type Heuristic = State -> Bool -> Bool -> Score
+
+pieceValue :: PieceKind -> Score
+pieceValue Pawn = 1
+pieceValue Knight = 3
+pieceValue Bishop = 3
+pieceValue Rook = 5
+pieceValue Queen = 9
+pieceValue King = 0
+
+checkValue :: Score
+checkValue = 3
+
+centerControlValue :: Score
+centerControlValue = 1
+
+centerPositions :: Vector 4 Position
+centerPositions = vec (Position {rank=3; file=3;}) (Position {rank=3; file=4;}) (Position {rank=4; file=3;}) (Position {rank=4; file=4;})
+
+castleValue :: Score
+castleValue = 3
+
+defaultHeuristic :: Heuristic
+defaultHeuristic state turnInCheck otherTurnInCheck =
+  let squareScore Nothing = 0
+      squareScore (Just piece) =
+        (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
+      controlScore pos =
+        (if isThreatened state.board (otherColor state.turn) pos || isOccupied state.board state.turn pos then 1 else 0) -
+        (if isThreatened state.board state.turn pos || isOccupied state.board (otherColor state.turn) pos then 1 else 0)
+  in (foldr1 (+) $ map squareScore $ concat state.board) +
+     (if otherTurnInCheck then checkValue else 0) - (if turnInCheck then checkValue else 0) +
+     centerControlValue * (foldr1 (+) $ map controlScore centerPositions) +
+     (if state.whiteHist.castled then if state.turn == White then castleValue else negate castleValue else 0) +
+     (if state.blackHist.castled then if state.turn == Black then castleValue else negate castleValue else 0)

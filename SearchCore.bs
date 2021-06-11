@@ -1,6 +1,7 @@
 package SearchCore where
 
 import Chess
+import Heuristic
 import FIFO
 import FIFOF
 import GetPut
@@ -12,7 +13,6 @@ import CShow
 
 type RequestId = UInt 8
 type Depth = UInt 8
-type Score = Int 8
 type MoveCount = UInt 8
 
 minScore :: Score
@@ -96,7 +96,7 @@ interface (SearchCore :: # -> *) stackSize =
 
   status :: Bit 16 {-# always_ready, always_enabled #-}
 
-mkSearchCore :: (Add dispatchDepth 1 maxDepth) => (State -> Score) -> Vector numDispatch (SearchCore dispatchDepth) -> Module (SearchCore maxDepth)
+mkSearchCore :: (Add dispatchDepth 1 maxDepth) => Heuristic -> Vector numDispatch (SearchCore dispatchDepth) -> Module (SearchCore maxDepth)
 mkSearchCore heuristic dispatchCores = module
   queries :: FIFO SearchQuery <- mkSizedFIFO 1
   results :: FIFO SearchResult <- mkFIFO
@@ -131,10 +131,12 @@ mkSearchCore heuristic dispatchCores = module
     "get_query_state": when stackSize == 0 ==> state := queries.first.state
     "get_move_state": when stackSize > 0 ==> state := move stateMove topFrame.state
 
-    "eval_state": when True ==> do
-      stateHeuristicScore := heuristic state
+    "eval_state_check": when True ==> do
       currentPlayerInCheck := inCheck state.board topFrame.state.turn
       otherPlayerInCheck := inCheck state.board (otherColor topFrame.state.turn)
+
+    "eval_state_heuristic": when True ==> do
+      stateHeuristicScore := heuristic state otherPlayerInCheck currentPlayerInCheck
 
   let frameRules frameIndex =
         let nextFrame = if frameIndex < valueOf maxDepth - 1 then stack !! (frameIndex + 1) else _
@@ -307,22 +309,6 @@ mkSearchCore heuristic dispatchCores = module
     clear = clear.send
 
     status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4) ++ 0
-
-
-pieceValue :: PieceKind -> Score
-pieceValue Pawn = 1
-pieceValue Knight = 3
-pieceValue Bishop = 3
-pieceValue Rook = 5
-pieceValue Queen = 9
-pieceValue King = 0
-
-defaultHeuristic :: State -> Score
-defaultHeuristic state =
-  let squareScore Nothing = 0
-      squareScore (Just piece) =
-        (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
-  in foldr1 (+) $ map squareScore $ concat state.board
 
 
 {-# verilog mkSingleSearchCore #-}
