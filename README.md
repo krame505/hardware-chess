@@ -23,6 +23,8 @@ $ sudo apt install python3-tk
    * Generate a Bluesim simulator for the top-level `sysChessSim` module specified in `SimTop.bs`
 
 ## Running the simulator
+If you don't have access to an FPGA, the design can still be run as a BlueSim simulation.  The AI is still quite playable in this form, though significantly more beatable then on hardware as the search depth is several plies shallower.
+
 1. Run `./sysChessSim.out` to start the simulator; this will print the name of the simulated serial device.
 ```
 $ ./sysChessSim.out
@@ -44,7 +46,8 @@ $ ./server.py /dev/pts/44
 
 
 ## Running on an FPGA
-The design can also be run in hardware on an Arty A7 FPGA board.
+The design can also be run in hardware on an FPGA.  Vivado constraint and project files are included for use with the Arty A7 board, however it should be possible to configure the project for other FPGAs.
+
 1. Install [Vivado and the Digilent board files](https://reference.digilentinc.com/vivado/installing-vivado/start).  Note that there are multiple versions available; ensure that the installed version supports Xilinx FPGAs.
 2. Open the `hardware-chess.xpr` project file in Vivado
 3. Generate a bitstream file and program the device.  A serial device corresponding to the FPGA board should appear, e.g. `/dev/ttyUSB1`
