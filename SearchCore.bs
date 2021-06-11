@@ -94,7 +94,7 @@ interface (SearchCore :: # -> *) stackSize =
   server :: Server SearchQuery SearchResult
   clear :: Action
 
-  status :: Bit 8 {-# always_ready, always_enabled #-}
+  status :: Bit 16 {-# always_ready, always_enabled #-}
 
 mkSearchCore :: (Add dispatchDepth 1 maxDepth) => (State -> Score) -> Vector numDispatch (SearchCore dispatchDepth) -> Module (SearchCore maxDepth)
 mkSearchCore heuristic dispatchCores = module
@@ -306,7 +306,7 @@ mkSearchCore heuristic dispatchCores = module
         response = toGet results
     clear = clear.send
 
-    status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4)
+    status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4) ++ 0
 
 
 pieceValue :: PieceKind -> Score
@@ -331,7 +331,15 @@ mkSingleSearchCore = mkSearchCore defaultHeuristic nil
 
 {-# verilog mkParallelSearchCore #-}
 mkParallelSearchCore :: Module (SearchCore 15)
-mkParallelSearchCore = do
+mkParallelSearchCore = module
   worker1 <- mkSingleSearchCore
   worker2 <- mkSingleSearchCore
-  mkSearchCore defaultHeuristic $ worker1 :> worker2 :> nil
+  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 :> nil
+
+  interface
+    server = main.server
+    clear = main.clear
+    status =
+      ((split main.status).fst :: Bit 8) ++
+      ((split ((split worker1.status).fst :: Bit 8)).snd :: Bit 4) ++
+      ((split ((split worker2.status).fst :: Bit 8)).snd :: Bit 4)

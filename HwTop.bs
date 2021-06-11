@@ -9,7 +9,7 @@ import Clocks
 interface Top =
   tx :: Bit 1 {-# always_ready, always_enabled #-}
   rx :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [rx] #-}
-  status :: Bit 8 {-# always_ready, always_enabled #-}
+  status :: Bit 16 {-# always_ready, always_enabled #-}
 
 clockFreq :: Integer
 clockFreq = 100000000
@@ -44,7 +44,7 @@ mkTop = module
       writeEnable := True
 
   driverStatus <- mkConverter 2 $ toGet driver.status
-  lastStatus :: Reg (Bit 8) <- mkReg 0
+  lastStatus :: Reg (Bit 16) <- mkReg 0
   driverStatus <-> toPut lastStatus._write
 
   interface

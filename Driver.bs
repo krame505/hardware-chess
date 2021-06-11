@@ -31,7 +31,7 @@ interface ChessDriver =
   txData :: Get (Bit 8)
   rxData :: Put (Bit 8)
 
-  status :: Bit 8  {-# always_ready, always_enabled #-}
+  status :: Bit 16  {-# always_ready, always_enabled #-}
 
 {-# verilog mkChessDriver #-}
 mkChessDriver :: Module ChessDriver
