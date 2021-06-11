@@ -34,15 +34,17 @@ struct SearchQuery =
 struct SearchResult =
   rid :: RequestId
   bestMove :: Maybe Move
+  forcedOutcome :: Bool
   score :: Score
   depth :: Depth
  deriving (Bits)
 
 interface Frame =
   putState :: State -> Bool -> Score -> Score -> Action
-  putScore :: Score -> ActionValue Bool
+  putScore :: Score -> Bool -> ActionValue Bool
   state :: State
   hasMove :: Bool
+  forcedOutcome :: Bool  -- Can either player force a win
   score :: Score
   alpha :: Score
   beta :: Score
@@ -52,27 +54,34 @@ mkFrame :: Module Frame
 mkFrame = module
   state <- mkReg _
   inCheck <- mkReg False
-  moves <- mkSizedFIFOF moveQueueSize
   hasMove <- mkReg False
+  forcedOutcome <- mkReg True
   bestScore <- mkReg 0
   alpha <- mkReg minScore
   beta <- mkReg maxScore
+  moves <- mkSizedFIFOF moveQueueSize
 
   interface
     putState s c a b =
       do state := s
          inCheck := c
          hasMove := False
+         forcedOutcome := True
          alpha := a
          beta := b
-    putScore s =
+    putScore s f =
       do hasMove := True
-         let isBestScore = s > bestScore || not hasMove
-         if isBestScore then bestScore := s else noAction
-         if s > alpha then alpha := s else noAction
+         let newScore = if f then (if s > 0 then s - 1 else s + 1) else s
+             isBestScore = newScore > bestScore || not hasMove
+         if isBestScore
+           then do bestScore := newScore
+                   forcedOutcome := f
+           else noAction
+         if newScore > alpha then alpha := newScore else noAction
          return isBestScore
     state = state
     hasMove = hasMove
+    forcedOutcome = forcedOutcome
     score =
       if hasMove then bestScore
       else if inCheck then minScore  -- Checkmate
@@ -140,7 +149,7 @@ mkSearchCore heuristic dispatchCores = module
               rules
                 ("cutoff_" +++ integerToString frameIndex): when frameIndex > 0, currentFrame.alpha >= currentFrame.beta ==> do
                   $display depthStr " cutoff " currentFrame.score
-                  prevFrame.putScore $ negate currentFrame.score
+                  prevFrame.putScore (negate currentFrame.score) currentFrame.forcedOutcome
                   stackSize := fromInteger frameIndex
                   movesComplete := True
                   currentFrame.moves.clear
@@ -170,7 +179,7 @@ mkSearchCore heuristic dispatchCores = module
 
                     ("heuristic_state_" +++ integerToString frameIndex): when not currentPlayerInCheck, isTerminal ==> do
                       $display depthStr " heuristic_state " (cshow currentFrame.moves.first) " " stateHeuristicScore
-                      isBestScore <- currentFrame.putScore $ if isDraw then 0 else negate stateHeuristicScore
+                      isBestScore <- currentFrame.putScore (if isDraw then 0 else negate stateHeuristicScore) False
                       if frameIndex == 0 && isBestScore then bestMove := currentFrame.moves.first else noAction
                       currentFrame.moves.deq
 
@@ -185,7 +194,7 @@ mkSearchCore heuristic dispatchCores = module
 
                         ("pop_state_" +++ integerToString frameIndex): when frameIndex > 0, not currentFrame.moves.notEmpty ==> do
                           $display depthStr " pop_state " currentFrame.score
-                          isBestScore <- prevFrame.putScore $ negate currentFrame.score
+                          isBestScore <- prevFrame.putScore (negate currentFrame.score) currentFrame.forcedOutcome
                           if frameIndex == 1 && isBestScore then bestMove := currentMove else noAction
                           stackSize := fromInteger frameIndex
 
@@ -206,7 +215,7 @@ mkSearchCore heuristic dispatchCores = module
             rules
               "invalid_query_depth": when stackSize == 0, queries.first.depth > fromInteger (valueOf maxDepth) ==> do
                 $display "0 invalid_query_depth " (cshow queries.first)
-                results.enq $ SearchResult {rid=rid; bestMove=Nothing; score=bottomFrame.score; depth=depth;}
+                results.enq $ SearchResult {rid=rid; bestMove=Nothing; forcedOutcome=False; score=0; depth=depth;}
                 queries.deq
 
               "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
@@ -219,6 +228,7 @@ mkSearchCore heuristic dispatchCores = module
                 let result = SearchResult {
                       rid = rid;
                       bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
+                      forcedOutcome = bottomFrame.forcedOutcome;
                       score = bottomFrame.score;
                       depth = depth;
                      }
@@ -231,6 +241,7 @@ mkSearchCore heuristic dispatchCores = module
             let result = SearchResult {
                   rid = rid;
                   bestMove = if bottomFrame.hasMove then Just bestMove else Nothing;
+                  forcedOutcome = bottomFrame.forcedOutcome;
                   score = bottomFrame.score;
                   depth = depth;
                 }
@@ -267,7 +278,7 @@ mkSearchCore heuristic dispatchCores = module
                 ("handle_dispatch_result_" +++ integerToString i): when stackSize > 0 ==> do
                   result <- (dispatchCores !! i).server.response.get
                   $display ("handle_dispatch_result_" +++ integerToString i +++ " ") (cshow result)
-                  bestScore <- bottomFrame.putScore $ negate result.score
+                  bestScore <- bottomFrame.putScore (negate result.score) result.forcedOutcome
                   if bestScore then bestMove := (dispatchMoves !! i).first else noAction
                   (dispatchMoves !! i).deq
         return $
