@@ -21,7 +21,7 @@ var state = null
 var moves = []
 
 function moveFrom(move) {
-  if (move.tag == 'Move' || move.tag == 'Promote') {
+  if (move.tag == 'Move' || move.tag == 'EnPassant' || move.tag == 'Promote') {
     return move.contents.from
   } else if (move.tag == 'Castle') {
     return {rank: state.turn == 'Black'? 0 : 7, file: 4}
@@ -29,7 +29,7 @@ function moveFrom(move) {
 }
 
 function moveTo(move) {
-  if (move.tag == 'Move' || move.tag == 'Promote') {
+  if (move.tag == 'Move' || move.tag == 'EnPassant' || move.tag == 'Promote') {
     return move.contents.to
   } else if (move.tag == 'Castle') {
     return {rank: state.turn == 'Black'? 0 : 7, file: move.contents.kingSide? 6 : 2}

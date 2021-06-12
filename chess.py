@@ -42,17 +42,23 @@ def strPosition(pos):
     return chr(ord('a') + pos.file) + str(8 - pos.rank)
 
 def strMove(state, move):
-    if move.tag == lib.Move_Move or move.tag == lib.Move_Promote:
-        directMove = move.contents.Move if move.tag == lib.Move_Move else move.contents.Promote
-        fromPos = getattr(directMove, 'from')
+    if move.tag == lib.Move_Move or move.tag == lib.Move_EnPassant or move.tag == lib.Move_Promote:
+        if move.tag == lib.Move_Move:
+            directMove = move.contents.Move
+        elif move.tag == lib.Move_EnPassant:
+            directMove = move.contents.EnPassant
+        elif move.tag == lib.Move_Promote:
+            directMove = move.contents.Promote
+        fromPos = getattr(directMove, 'from')  # Can't write directMove.from since 'from' is a keyword in Python
         toPos = directMove.to
         fromSquare = state.board[fromPos.rank][fromPos.file]
         toSquare = state.board[toPos.rank][toPos.file]
-        #assert fromSquare.occupied
-        #assert fromSquare.piece.color.tag == state.turn.tag
-        capture = toSquare.occupied
+        assert fromSquare.occupied
+        assert fromSquare.piece.color.tag == state.turn.tag
+        capture = toSquare.occupied or move.tag == lib.Move_EnPassant
         promo = strPiece(ffi.new("Piece *", {'color': fromSquare.piece.color, 'kind': directMove.kind})) if move.tag == lib.Move_Promote else ""
-        return strPiece(fromSquare.piece) + strPosition(fromPos) + ("x" if capture else "-") + strPosition(toPos) + promo
+        ep = " e.p." if move.tag == lib.Move_EnPassant else ""
+        return strPiece(fromSquare.piece) + strPosition(fromPos) + ("x" if capture else "-") + strPosition(toPos) + promo + ep
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 

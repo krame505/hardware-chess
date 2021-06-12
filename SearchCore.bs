@@ -162,11 +162,11 @@ mkSearchCore heuristic dispatchCores = module
                     ("state_move_" +++ integerToString frameIndex): when True ==> stateMove := currentFrame.moves.first
 
                     ("put_NextMove_" +++ integerToString frameIndex): when not movesComplete, NextMove m <- eval.move.first ==> do
-                      $display depthStr " put_NextMove " (cshow m)
+                      -- $display depthStr " put_NextMove " (cshow m)
                       currentFrame.moves.enq m
                       eval.move.deq
                     ("put_NoMove_" +++ integerToString frameIndex): when not movesComplete, NoMove <- eval.move.first ==> do
-                      $display depthStr " put_NoMove"
+                      -- $display depthStr " put_NoMove"
                       movesComplete := True
                       eval.move.deq
 

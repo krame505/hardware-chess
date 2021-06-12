@@ -51,6 +51,7 @@ struct State =
 
 data Move
   = Move { from :: Position; to :: Position }
+  | EnPassant { from :: Position; to :: Position }
   | Promote { kind :: PieceKind; from :: Position; to :: Position }
   | Castle {kingSide :: Bool}
  deriving (Eq, Bits)
@@ -153,6 +154,15 @@ move (Move {from; to;} ) s =
          _ -> if isJust $ selectPos s.board to then 0 else s.lastProgressMove + 1
       );
   }
+move (EnPassant {from; to;} ) s =
+  let p = selectPos s.board from
+  in State {
+    turn = if s.turn == White then Black else White;
+    board = updatePos (updatePos (updatePos s.board from Nothing) to p) (Position {rank=from.rank; file=to.file;}) Nothing;
+    whiteHist = s.whiteHist { pawnMoved2 = Nothing; };
+    blackHist = s.blackHist { pawnMoved2 = Nothing; };
+    lastProgressMove = 0;
+  }
 move (Promote {kind=newKind; from; to;}) s =
   State {
     turn = if s.turn == White then Black else White;
@@ -232,7 +242,8 @@ diagonalDisps :: Vector 4 (Integer -> (Integer, Integer))
 diagonalDisps = vec (\ i -> (i + 1, i + 1)) (\ i -> (i + 1, negate i - 1)) (\ i -> (negate i - 1, i + 1)) (\ i -> (negate i - 1, negate i - 1))
 
 -- Note that this does not handle en passant, however it is currently only used
--- to determine if a King is in check.
+-- to determine if a King is in check or if the center is threatened,
+-- thus it doesn't matter in practice.
 isThreatened :: Board -> Color -> Position -> Bool
 isThreatened board player pos =
   let traceRankFile = map (trace board pos) rankFileDisps
@@ -372,10 +383,12 @@ mkMoveEval = module
          in mkMoveRule "pawn_capture_left" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
         (let pos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
          in mkMoveRule "pawn_capture_right" (evalPieceIs Pawn && pos.rank /= promoRank && evalPos.file < 7 && capturable pos) $ Move {from=evalPos; to=pos;})
-        (let pos = Position {rank=evalPos.rank; file=evalPos.file - 1}
-         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && pos.rank == enPassantRank && otherHist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
-        (let pos = Position {rank=evalPos.rank; file=evalPos.file + 1}
-         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && pos.rank == enPassantRank && otherHist.pawnMoved2 == Just pos.file && evalPos.file > 0 && capturable pos) $ Move {from=evalPos; to=pos;})
+        (let capturePos = Position {rank=evalPos.rank; file=evalPos.file - 1}
+             movePos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file - 1}
+         in mkMoveRule "pawn_enpassant_left" (evalPieceIs Pawn && evalPos.rank == enPassantRank && otherHist.pawnMoved2 == Just movePos.file && evalPos.file > 0 && capturable capturePos) $ EnPassant {from=evalPos; to=movePos;})
+        (let capturePos = Position {rank=evalPos.rank; file=evalPos.file + 1}
+             movePos = Position {rank=evalPos.rank `pawnDirection` 1; file=evalPos.file + 1}
+         in mkMoveRule "pawn_enpassant_right" (evalPieceIs Pawn && evalPos.rank == enPassantRank && otherHist.pawnMoved2 == Just movePos.file && evalPos.file > 0 && capturable capturePos) $ EnPassant {from=evalPos; to=movePos;})
         `append` map (\ d ->
            let pos = dispPos evalPos d
            in mkMoveRule "king_move" (evalPieceIs King && dispInBounds evalPos d && (open pos || capturable pos)) $ Move {from=evalPos; to=pos;}) kingMoves
