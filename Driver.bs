@@ -17,9 +17,6 @@ data Command = GetState
              | Reset
   deriving (Bits)
 
-data Outcome = NoOutcome | Check | CheckMate | Draw
-  deriving (Bits)
-
 interface ChessMsgs =
   command :: Rx 2 2 Command
   state :: Tx 2 2 State
@@ -50,69 +47,54 @@ _mkChessDriver = module
   msgMgr.txMsg <-> enc.msg
 
   state :: Reg State <- mkReg initialState
-  eval :: MoveEval <- mkMoveEval
-
+  moveUpdate <- mkMoveUpdate
   searchCore <- mkParallelSearchCore
+
+  searchCore.moves <-> toPut msgMgr.fifos.moves
 
   let updateState newState = do
         state := newState
-        eval.state.put newState
-        searchCore.clear
+        searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=1; getMoves=True; alpha=Nothing; beta=Nothing;}
         msgMgr.fifos.state.enq newState
 
-  checkEvalState :: Wire State <- mkWire
-  isInCheck :: Wire Bool <- mkWire
+      commandRules =
+        rules
+          "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
+            $display "handle_GetState"
+            updateState state
+            msgMgr.fifos.command.deq
+          "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
+            $display "handle_Move"
+            moveUpdate.putState state
+            moveUpdate.putMove m
+            msgMgr.fifos.command.deq
+          "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
+            $display "handle_GetSearchMove"
+            searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth; getMoves=False; alpha=Nothing; beta=Nothing;}
+            msgMgr.fifos.command.deq
+          "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
+            $display "handle_CancelSearch"
+            searchCore.clear
+            msgMgr.fifos.command.deq
+          "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
+            $display "handle_Reset"
+            updateState $ initialState
+            msgMgr.fifos.command.deq
 
-  hasMoves :: Reg Bool <- mkReg False
+      updateRules =
+        rules
+          "report_move_update": when True ==> do
+            $display "report_move_update"
+            updateState moveUpdate.newState
 
-  rules
-    "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
-      eval.state.put state
-      msgMgr.fifos.state.enq state
-      msgMgr.fifos.command.deq
-    "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
-      updateState $ move m state
-      msgMgr.fifos.command.deq
-    "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
-      searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth; alpha=Nothing; beta=Nothing;}
-      msgMgr.fifos.command.deq
-    "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
-      searchCore.clear
-      msgMgr.fifos.command.deq
-    "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
-      updateState $ initialState
-      msgMgr.fifos.command.deq
+          "report_search_outcome": when True ==> do
+            $display "report_search_outcome"
+            result <- searchCore.server.response.get
+            if result.rid == 0
+              then msgMgr.fifos.outcome.enq result.outcome
+              else msgMgr.fifos.searchResult.enq result
 
-    -- This is split into seperate rules with wires to avoid excessive compilation times caused by aggressive inlining
-    "update_moveState": when True ==>
-      checkEvalState :=
-        case eval.move.first of
-          NextMove m -> move m state
-          NoMove -> state
-    "update_isInCheck": when True ==>
-      isInCheck := inCheck checkEvalState.board state.turn
-
-    "report_NextMove": when NextMove m <- eval.move.first ==> do
-      if isInCheck
-        then noAction
-        else do hasMoves := True
-                msgMgr.fifos.moves.enq $ NextMove m
-      eval.move.deq
-    "report_NoMove": when NoMove <- eval.move.first ==> do
-      let outcome :: Outcome =
-            if state.lastProgressMove >= 50 then Draw else
-            case (isInCheck, hasMoves) of
-              (False, False) -> Draw
-              (False, True) -> NoOutcome
-              (True, False) -> CheckMate
-              (True, True) -> Check
-      msgMgr.fifos.moves.enq NoMove
-      msgMgr.fifos.outcome.enq outcome
-      hasMoves := False
-      eval.move.deq
-    "report_search_move": when True ==> do
-      result <- searchCore.server.response.get
-      msgMgr.fifos.searchResult.enq result
+  addRules $ commandRules `rJoinDescendingUrgency` updateRules
 
   interface
     txData = enc.byte

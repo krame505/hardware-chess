@@ -25,7 +25,7 @@ centerPositions :: Vector 4 Position
 centerPositions = vec (Position {rank=3; file=3;}) (Position {rank=3; file=4;}) (Position {rank=4; file=3;}) (Position {rank=4; file=4;})
 
 castleValue :: Score
-castleValue = 3
+castleValue = 2
 
 defaultHeuristic :: Heuristic
 defaultHeuristic state turnInCheck otherTurnInCheck =

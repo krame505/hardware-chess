@@ -68,7 +68,7 @@ class ChessClient(msgclient.Client):
         self.callback = callback
         self.event = "Initialized"
         self.state = None
-        self.stateId = 0
+        self.stateId = 1
         self._movesAccum = []
         self.moves = []
         self.outcome = None
@@ -137,15 +137,17 @@ class ChessClient(msgclient.Client):
             print("Sending best move")
             if self.bestMove is None:
                 raise RuntimeError("Search move not ready")
+            self.searchTimer = None
+            self.cancelSearch()
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
             self.event = strMove(self.state, self.bestMove)
             self.bestMove = None
             self.outcome = None
-            self.searchTimer = None
         self.searchTimer = threading.Timer(self.timeout, sendSearchMove)
         self.searchTimer.start()
 
     def cancelSearch(self):
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_CancelSearch})[0])
         if self.searchTimer is not None:
             self.searchTimer.cancel()
             self.searchTimer = None
@@ -170,6 +172,7 @@ class ChessClient(msgclient.Client):
             self.outcome = None
 
     def reset(self):
+        self.cancelSearch()
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
         self.event = "Game reset"
         self.outcome = None
@@ -177,5 +180,5 @@ class ChessClient(msgclient.Client):
     def config(self, whiteAI, blackAI):
         self.whiteAI = whiteAI
         self.blackAI = blackAI
-        if self.searchTimer is None:
-            self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+        self.cancelSearch()
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
