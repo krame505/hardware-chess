@@ -13,21 +13,24 @@ searchDepth = 3
 sysChessVSim :: Module Empty
 sysChessVSim = module
   searchCore <- mkParallelSearchCore
+  moveUpdate <- mkMoveUpdate
   state <- mkReg initialState
 
   init <- mkReg False
   rules
     "init": when not init ==> do
       $display (cshow state)
-      searchCore.server.request.put $ SearchQuery {rid=0; state=state; depth=searchDepth; alpha=Nothing; beta=Nothing;}
+      searchCore.server.request.put $ SearchQuery {rid=0; state=state; depth=searchDepth; getMoves=False; alpha=Nothing; beta=Nothing;}
       init := True
-    "move": when init ==> do
+    "get_result": when init ==> do
       result <- searchCore.server.response.get
       $display (cshow result)
       case result.bestMove of
         Just m -> do
-          let newState = move m state
-          $display newState
-          state := newState
-          searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=searchDepth; alpha=Nothing; beta=Nothing;}
+          moveUpdate.putState state
+          moveUpdate.putMove m
         Nothing -> $finish
+    "put_query": when init ==> do
+      $display moveUpdate.newState
+      state := moveUpdate.newState
+      searchCore.server.request.put $ SearchQuery {rid=0; state=moveUpdate.newState; depth=searchDepth; getMoves=False; alpha=Nothing; beta=Nothing;}
