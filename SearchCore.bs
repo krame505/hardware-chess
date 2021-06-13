@@ -347,7 +347,8 @@ mkParallelSearchCore :: Module (SearchCore 15)
 mkParallelSearchCore = module
   worker1 <- mkSingleSearchCore
   worker2 <- mkSingleSearchCore
-  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 :> nil
+  worker3 <- mkSingleSearchCore
+  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 :> worker3 :> nil
 
   interface
     server = main.server
