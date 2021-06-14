@@ -27,6 +27,26 @@ centerPositions = vec (Position {rank=3; file=3;}) (Position {rank=3; file=4;}) 
 castleValue :: Score
 castleValue = 2
 
+whitePawnPositions :: Vector (TMul 7 8) Position
+whitePawnPositions = concat $ genWith (\ rank -> (genWith (\ file -> Position {rank=fromInteger rank; file=fromInteger file;})) :: Vector 8 Position)
+
+blackPawnPositions :: Vector (TMul 7 8) Position
+blackPawnPositions = concat $ genWith (\ rank -> (genWith (\ file -> Position {rank=fromInteger rank + 1; file=fromInteger file;})) :: Vector 8 Position)
+
+pawnStructureScore :: Board -> Color -> Position -> Score
+pawnStructureScore board turn pos =
+  let isTurnPawn p = selectPos board p == Just (Piece {color=turn; kind=Pawn;})
+  in
+    if isTurnPawn pos
+    then
+      (if pos.rank > 0 && pos.file > 0 && isTurnPawn (Position {rank=pos.rank - 1; file=pos.file - 1;}) then 1 else 0) +
+      (if pos.rank > 0 && pos.file < 7 && isTurnPawn (Position {rank=pos.rank - 1; file=pos.file + 1;}) then 1 else 0) +
+      (if pos.file > 0 && isTurnPawn (Position {rank=pos.rank; file=pos.file - 1;}) then negate 1 else 0)
+    else 0
+
+pawnStructureValueDiv :: Score
+pawnStructureValueDiv = 2
+
 defaultHeuristic :: Heuristic
 defaultHeuristic state turnInCheck otherTurnInCheck =
   let squareScore Nothing = 0
@@ -35,8 +55,11 @@ defaultHeuristic state turnInCheck otherTurnInCheck =
       controlScore pos =
         (if isThreatened state.board (otherColor state.turn) pos || isOccupied state.board state.turn pos then 1 else 0) -
         (if isThreatened state.board state.turn pos || isOccupied state.board (otherColor state.turn) pos then 1 else 0)
+      whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
+      blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
   in (foldr1 (+) $ map squareScore $ concat state.board) +
      (if otherTurnInCheck then checkValue else 0) - (if turnInCheck then checkValue else 0) +
      centerControlValue * (foldr1 (+) $ map controlScore centerPositions) +
      (if state.whiteHist.castled then if state.turn == White then castleValue else negate castleValue else 0) +
-     (if state.blackHist.castled then if state.turn == Black then castleValue else negate castleValue else 0)
+     (if state.blackHist.castled then if state.turn == Black then castleValue else negate castleValue else 0) +
+     (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) / pawnStructureValueDiv
