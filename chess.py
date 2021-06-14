@@ -129,22 +129,25 @@ class ChessClient(msgclient.Client):
             self.callback(self.event)
 
     def startSearch(self):
-        print("Getting search move for", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
-        self.depth = 1
-        self.requestSearchMove()
+        if self.searchTimer is None:
+            print("Getting search move for", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
+            self.depth = 1
+            self.requestSearchMove()
+            self.searchTimer = threading.Timer(self.timeout, self.sendSearchMove)
+            self.searchTimer.start()
 
-        def sendSearchMove():
+    def sendSearchMove(self):
+        self.searchTimer = None
+        self.cancelSearch()
+        if self.bestMove is None:
+            print("Search move not ready")
+            self.startSearch()  # Retry
+        else:
             print("Sending best move")
-            if self.bestMove is None:
-                raise RuntimeError("Search move not ready")
-            self.searchTimer = None
-            self.cancelSearch()
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
             self.event = strMove(self.state, self.bestMove)
             self.bestMove = None
             self.outcome = None
-        self.searchTimer = threading.Timer(self.timeout, sendSearchMove)
-        self.searchTimer.start()
 
     def cancelSearch(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_CancelSearch})[0])
