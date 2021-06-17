@@ -26,14 +26,26 @@ moveQueueSize = 60
 data Outcome = NoOutcome | Check | CheckMate | Draw
   deriving (Bits)
 
-struct SearchQuery =
+struct SearchQuery config =
   rid :: RequestId
   state :: State
   depth :: Depth
   getMoves :: Bool
   alpha :: Maybe Score
   beta :: Maybe Score
+  config :: Maybe config
  deriving (Bits)
+
+instance DefaultValue (SearchQuery config) where
+  defaultValue =
+    interface SearchQuery
+      rid = 0
+      state = initialState
+      depth = 5
+      getMoves = False
+      alpha = Nothing
+      beta = Nothing
+      config = Nothing
 
 struct SearchResult =
   rid :: RequestId
@@ -95,17 +107,21 @@ mkFrame = module
     beta = beta
     moves = moves
 
-interface (SearchCore :: # -> *) stackSize =
-  server :: Server SearchQuery SearchResult
+interface (SearchCore :: * -> # -> *) config stackSize =
+  server :: Server (SearchQuery config) SearchResult
   moves :: GetS MoveResponse
   clear :: Action
 
   status :: Bit 16 {-# always_ready, always_enabled #-}
 
-mkSearchCore :: (Add dispatchDepth 1 maxDepth) => Heuristic -> Vector numDispatch (SearchCore dispatchDepth) -> Module (SearchCore maxDepth)
-mkSearchCore heuristic dispatchCores = module
-  queries :: FIFO SearchQuery <- mkSizedFIFO 1
+mkSearchCore ::
+  (Add dispatchDepth 1 maxDepth, Bits config cb, CShow config) =>
+  Heuristic config -> config -> Vector numDispatch (SearchCore config dispatchDepth) ->
+  Module (SearchCore config maxDepth)
+mkSearchCore heuristic initConfig dispatchCores = module
+  queries :: FIFO (SearchQuery config) <- mkSizedFIFO 1
   results :: FIFO SearchResult <- mkFIFO
+  cfg :: Reg config <- mkReg initConfig
 
   let rid = queries.first.rid
   depth :: Reg Depth <- mkReg 0  -- This is a register in order to be always ready for the status
@@ -150,7 +166,7 @@ mkSearchCore heuristic dispatchCores = module
     "update_query_state_in_check": when stackSize == 0 ==> queryStateInCheck := otherPlayerInCheck
 
     "eval_state_heuristic": when True ==> do
-      stateHeuristicScore := heuristic state otherPlayerInCheck currentPlayerInCheck
+      stateHeuristicScore := heuristic cfg state otherPlayerInCheck currentPlayerInCheck
 
   let frameRules frameIndex =
         let nextFrame = if frameIndex < valueOf maxDepth - 1 then stack !! (frameIndex + 1) else _
@@ -223,7 +239,7 @@ mkSearchCore heuristic dispatchCores = module
 
   let reset = do
         joinActions $ map (\ frame -> (frame :: Frame).moves.clear) stack
-        joinActions $ map (\ core -> (core :: SearchCore dispatchDepth).clear) dispatchCores
+        joinActions $ map (\ core -> (core :: SearchCore config dispatchDepth).clear) dispatchCores
         joinActions $ map (\ moves -> (moves :: (FIFOF Move)).clear) dispatchMoves
         stackSize := 0
         eval.clear
@@ -257,6 +273,8 @@ mkSearchCore heuristic dispatchCores = module
               "push_query_state": when stackSize == 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
                 $display "0 push_query_state " (cshow queries.first)
                 depth := queries.first.depth
+                case queries.first.config of
+                  Just newConfig -> cfg := newConfig
                 pushState bottomFrame (fromMaybe minScore queries.first.alpha) (fromMaybe maxScore queries.first.beta)
                 stackSize := 1
 
@@ -296,6 +314,7 @@ mkSearchCore heuristic dispatchCores = module
                     getMoves = False;
                     alpha = Just $ negate bottomFrame.beta;
                     beta = Just $ negate bottomFrame.alpha;
+                    config = Just cfg;
                   }
                   $display ("dispatch_query_" +++ integerToString i +++ " ") (cshow bottomFrame.moves.first) " " (cshow query)
                   (dispatchMoves !! i).enq bottomFrame.moves.first
@@ -339,16 +358,16 @@ mkSearchCore heuristic dispatchCores = module
 
 
 {-# verilog mkSingleSearchCore #-}
-mkSingleSearchCore :: Module (SearchCore 14)
-mkSingleSearchCore = mkSearchCore defaultHeuristic nil
+mkSingleSearchCore :: Module (SearchCore Config 14)
+mkSingleSearchCore = mkSearchCore defaultHeuristic defaultConfig nil
 
 {-# verilog mkParallelSearchCore #-}
-mkParallelSearchCore :: Module (SearchCore 15)
+mkParallelSearchCore :: Module (SearchCore Config 15)
 mkParallelSearchCore = module
   worker1 <- mkSingleSearchCore
   worker2 <- mkSingleSearchCore
   worker3 <- mkSingleSearchCore
-  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 :> worker3 :> nil
+  main <- mkSearchCore defaultHeuristic defaultConfig $ worker1 :> worker2 :> worker3 :> nil
 
   interface
     server = main.server

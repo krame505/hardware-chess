@@ -5,7 +5,22 @@ import BuildVector
 import Chess
 
 type Score = Int 8
-type Heuristic = State -> Bool -> Bool -> Score
+type Heuristic c = c -> State -> Bool -> Bool -> Score
+
+struct Config =
+  checkValue :: Score
+  centerControlValue :: Score
+  castleValue :: Score
+  pawnStructureValueDiv :: Score
+ deriving (Bits)
+
+defaultConfig :: Config
+defaultConfig =
+  interface Config
+    checkValue = 3
+    centerControlValue = 1
+    castleValue = 2
+    pawnStructureValueDiv = 2
 
 pieceValue :: PieceKind -> Score
 pieceValue Pawn = 1
@@ -15,17 +30,8 @@ pieceValue Rook = 5
 pieceValue Queen = 9
 pieceValue King = 0
 
-checkValue :: Score
-checkValue = 3
-
-centerControlValue :: Score
-centerControlValue = 1
-
 centerPositions :: Vector 4 Position
 centerPositions = vec (Position {rank=3; file=3;}) (Position {rank=3; file=4;}) (Position {rank=4; file=3;}) (Position {rank=4; file=4;})
-
-castleValue :: Score
-castleValue = 2
 
 whitePawnPositions :: Vector (TMul 7 8) Position
 whitePawnPositions = concat $ genWith (\ rank -> (genWith (\ file -> Position {rank=fromInteger rank; file=fromInteger file;})) :: Vector 8 Position)
@@ -44,11 +50,8 @@ pawnStructureScore board turn pos =
       (if pos.file > 0 && isTurnPawn (Position {rank=pos.rank; file=pos.file - 1;}) then negate 1 else 0)
     else 0
 
-pawnStructureValueDiv :: Score
-pawnStructureValueDiv = 2
-
-defaultHeuristic :: Heuristic
-defaultHeuristic state turnInCheck otherTurnInCheck =
+defaultHeuristic :: Heuristic Config
+defaultHeuristic config state turnInCheck otherTurnInCheck =
   let squareScore Nothing = 0
       squareScore (Just piece) =
         (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
@@ -58,8 +61,8 @@ defaultHeuristic state turnInCheck otherTurnInCheck =
       whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
       blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
   in (foldr1 (+) $ map squareScore $ concat state.board) +
-     (if otherTurnInCheck then checkValue else 0) - (if turnInCheck then checkValue else 0) +
-     centerControlValue * (foldr1 (+) $ map controlScore centerPositions) +
-     (if state.whiteHist.castled then if state.turn == White then castleValue else negate castleValue else 0) +
-     (if state.blackHist.castled then if state.turn == Black then castleValue else negate castleValue else 0) +
-     (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) / pawnStructureValueDiv
+     (if otherTurnInCheck then config.checkValue else 0) - (if turnInCheck then config.checkValue else 0) +
+     config.centerControlValue * (foldr1 (+) $ map controlScore centerPositions) +
+     (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
+     (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
+     (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) / config.pawnStructureValueDiv

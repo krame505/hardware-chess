@@ -1,6 +1,7 @@
 package HwTop where
 
 import Driver
+import TestDriver
 import RS232
 import GetPut
 import Connectable
@@ -20,12 +21,19 @@ clockDivisor = 4
 baud :: Integer
 baud = 115200
 
+mkDriver :: Module ChessDriver
+#ifdef TEST
+mkDriver = mkChessTestDriver
+#else
+mkDriver = mkChessDriver
+#endif
+
 {-# verilog mkTop #-}
 mkTop :: Module Top
 mkTop = module
   clockDivider <- mkClockDivider clockDivisor
   reset <- mkReset clockDivisor True clockDivider.slowClock
-  driver <- changeSpecialWires (Just clockDivider.slowClock) (Just reset.new_rst) Nothing mkChessDriver
+  driver <- changeSpecialWires (Just clockDivider.slowClock) (Just reset.new_rst) Nothing mkDriver
   driverTx <- mkConverter 2 driver.txData
   driverRx <- mkConverter 2 driver.rxData
 

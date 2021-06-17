@@ -4,6 +4,8 @@
 *.so
 *.out
 *.sched
+.contrib
+depends.mk
 bin/
 __pycache__/
 *.cache/

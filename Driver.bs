@@ -54,7 +54,7 @@ _mkChessDriver = module
 
   let updateState newState = do
         state := newState
-        searchCore.server.request.put $ SearchQuery {rid=0; state=newState; depth=1; getMoves=True; alpha=Nothing; beta=Nothing;}
+        searchCore.server.request.put $ defaultValue {rid=0; state=newState; depth=1; getMoves=True;}
         msgMgr.fifos.state.enq newState
 
       commandRules =
@@ -70,7 +70,7 @@ _mkChessDriver = module
             msgMgr.fifos.command.deq
           "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
             $display "handle_GetSearchMove"
-            searchCore.server.request.put $ SearchQuery {rid=rid; state=state; depth=depth; getMoves=False; alpha=Nothing; beta=Nothing;}
+            searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth;}
             msgMgr.fifos.command.deq
           "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
             $display "handle_CancelSearch"

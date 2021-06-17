@@ -56,9 +56,6 @@ data Move
   | Castle {kingSide :: Bool}
  deriving (Eq, Bits)
 
-data Outcome = Win Color | Draw
- deriving (Eq, Bits)
-
 -- Fixed-width representation of Maybe Piece used in serialization and the C interface.
 -- This exists to avoid an evaluator blowup caused by 64 variable-width Maybe Piece
 -- items in a row.

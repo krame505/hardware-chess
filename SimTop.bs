@@ -1,13 +1,21 @@
 package SimTop where
 
 import Driver
+import TestDriver
 import GetPut
 import PTY
+
+mkDriver :: Module ChessDriver
+#ifdef TEST
+mkDriver = mkChessTestDriver
+#else
+mkDriver = mkChessDriver
+#endif
 
 {-# verilog sysChessSim #-}
 sysChessSim :: Module Empty
 sysChessSim = module
-  driver <- mkChessDriver
+  driver <- mkDriver
 
   -- Wait for first byte to be recieved before sending data
   writeEnable <- mkReg False

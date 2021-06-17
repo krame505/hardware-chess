@@ -1,0 +1,143 @@
+package TestDriver where
+
+import Chess
+import SearchCore
+import Heuristic
+import Driver
+import GenCMsg
+import GenCRepr
+import GetPut
+import ClientServer
+import Connectable
+import COBS
+import CShow
+import Randomizable
+import FIFOF
+
+data Command
+  = Config { white :: Config; black :: Config }
+  | RunTrial { randSteps :: UInt 8; depth :: Depth }
+  deriving (Bits)
+
+data TrialOutcome = Win Color | Draw | Error
+ deriving (Eq, Bits)
+
+interface ChessTestMsgs =
+  command :: Rx 8 8 Command
+  outcome :: Tx 8 8 TrialOutcome
+
+{-# verilog mkChessTestDriver #-}
+mkChessTestDriver :: Module ChessDriver
+mkChessTestDriver = _mkChessTestDriver
+
+-- Seperate due to the context
+_mkChessTestDriver :: (GenCMsg ChessTestMsgs rxBytes txBytes) => Module ChessDriver
+_mkChessTestDriver = module
+  writeCMsgDecls "chess_test" (_ :: ChessTestMsgs)
+
+  enc :: COBSEncoder txBytes <- mkCOBSEncoder
+  dec :: COBSDecoder rxBytes <- mkCOBSDecoder
+  msgMgr :: MsgManager ChessTestMsgs rxBytes txBytes <- mkMsgManager
+
+  dec.msg <-> dropSize msgMgr.rxMsg
+  msgMgr.txMsg <-> enc.msg
+
+  stateUpdates :: FIFOF State <- mkFIFOF
+  state :: Reg State <- mkReg initialState
+  moveUpdate <- mkMoveUpdate
+  searchCore <- mkParallelSearchCore
+  rand :: Randomize (UInt 8) <- mkConstrainedRandomizer 0 50
+
+  whiteConfig :: Reg Config <- mkReg defaultConfig
+  blackConfig :: Reg Config <- mkReg defaultConfig
+  trialRunning :: Reg Bool <- mkReg False
+  trialDepth :: Reg Depth <- mkReg 5
+  randStepsRemaining :: Reg (UInt 8) <- mkReg 0
+  randMoveIndex :: Reg (UInt 8) <- mkReg 0
+
+  let config = if state.turn == White then whiteConfig else blackConfig
+
+  addRules $
+    rules
+      {-# ASSERT fire when enabled #-}
+      "get_update_result": when True ==> stateUpdates.enq moveUpdate.newState
+    `rJoinDescendingUrgency`
+    rules
+      when not trialRunning
+        rules
+          "config": when Config {white; black;} <- msgMgr.fifos.command.first ==> do
+            $display "config " (cshow white) " " (cshow black)
+            whiteConfig := white
+            blackConfig := black
+            msgMgr.fifos.command.deq
+
+          "start_trial": when RunTrial {randSteps; depth;} <- msgMgr.fifos.command.first ==> do
+            $display "start_trial " (cshow randSteps) " " (cshow depth)
+            randStepsRemaining := randSteps
+            trialDepth := depth
+            trialRunning := True
+            stateUpdates.enq initialState
+            rand.cntrl.init
+            msgMgr.fifos.command.deq
+
+      when trialRunning
+        rules
+          "update_state": when True ==> do
+            $display "update_state"
+            state := stateUpdates.first
+            if randStepsRemaining > 0
+              then do
+                i <- rand.next
+                searchCore.server.request.put $ defaultValue {rid=randStepsRemaining; state=stateUpdates.first; depth=1; getMoves=True;}
+                randMoveIndex := i
+              else searchCore.server.request.put $ defaultValue {rid=0; state=stateUpdates.first; depth=trialDepth; config=Just config}
+            stateUpdates.deq
+
+          when not stateUpdates.notEmpty
+            rules
+              when randStepsRemaining > 0
+                rules
+                  when NextMove m <- searchCore.moves.first
+                    rules
+                      "do_initial_move": when randMoveIndex == 0 ==> do
+                        $display "do_initial_move " randMoveIndex
+                        moveUpdate.putState state
+                        moveUpdate.putMove m
+                        searchCore.clear
+                        randStepsRemaining := randStepsRemaining - 1
+
+                      "skip_initial_move": when randMoveIndex > 0 ==> do
+                        $display "skip_initial_move " randMoveIndex
+                        searchCore.moves.deq
+                        randMoveIndex := randMoveIndex - 1
+
+                  -- randMoveIndex was larger than the number of moves
+                  "retry_initial_move": when NoMove <- searchCore.moves.first ==> do
+                    $display "retry_initial_move " randMoveIndex
+                    searchCore.clear
+                    stateUpdates.enq state
+
+              "do_search_move": when randStepsRemaining == 0 ==> do
+                result <- searchCore.server.response.get
+                $display "do_search_move " (cshow result)
+                case result.outcome of
+                  CheckMate -> do
+                    trialRunning := False
+                    msgMgr.fifos.outcome.enq $ Win state.turn
+                  Draw -> do
+                    trialRunning := False
+                    msgMgr.fifos.outcome.enq Draw
+                  _ ->
+                    case result.bestMove of
+                      Just move -> do
+                        moveUpdate.putState state
+                        moveUpdate.putMove move
+                      Nothing -> do
+                        trialRunning := False
+                        msgMgr.fifos.outcome.enq Error
+                        searchCore.clear
+
+  interface
+    txData = enc.byte
+    rxData = dec.byte
+    status = searchCore.status

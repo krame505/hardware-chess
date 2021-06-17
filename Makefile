@@ -1,35 +1,61 @@
 BSCCONTRIB ?= $(abspath ../bsc-contrib)
 BUILDDIR ?= bin
 override BSCFLAGS += -p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
-override BSCFLAGS += -bdir $(BUILDDIR) -fdir $(BUILDDIR) -simdir $(BUILDDIR)
+override BSCFLAGS += -bdir $(BUILDDIR) -fdir $(BUILDDIR) -simdir $(BUILDDIR) -cpp
 override BSCFLAGS += +RTS -K1G -RTS -steps-warn-interval 1000000
 
-all: rtl sim ffi
+CONF ?= rel
 
-contrib:
+ifeq ($(CONF), rel)
+  LIBNAME = chess
+else ifeq ($(CONF), test)
+  LIBNAME = chess_test
+  override BSCFLAGS += -Xcpp -DTEST
+endif
+
+all: rtl sim vsim ffi
+
+.contrib:
 	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/GenC install
 	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/COBS install
 	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/FPGA/Misc install
+	touch $@
 
 $(BUILDDIR):
 	mkdir -p $@
 
-rtl: | contrib $(BUILDDIR)
-	bsc $(BSCFLAGS) -u -verilog -elab HwTop.bs
+$(BUILDDIR)/%.bo: %.bs .contrib | $(BUILDDIR)
+	bsc $(BSCFLAGS) -verilog -elab $<
 
-sim: | rtl contrib $(BUILDDIR)
+common: $(BUILDDIR)/Driver.bo
+
+rtl: common
+ifeq ($(CONF), test)
+	bsc $(BSCFLAGS) -verilog TestDriver.bs
+endif
+	bsc $(BSCFLAGS) -verilog HwTop.bs
+
+sim: common
+ifeq ($(CONF), test)
+	bsc $(BSCFLAGS) -sim TestDriver.bs
+endif
 	bsc $(BSCFLAGS) -sim PTY.bsv
 	bsc $(BSCFLAGS) -sim SimTop.bs
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
 
-vsim: | contrib $(BUILDDIR)
-	bsc $(BSCFLAGS) -u -verilog VSimTop.bs
+vsim: common
+	bsc $(BSCFLAGS) -verilog VSimTop.bs
 	bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
 
-ffi: | rtl $(BUILDDIR)
-	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py "chess"
+ffi: rtl
+	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py $(LIBNAME)
+
+depends.mk: | $(BUILDDIR)
+	bluetcl -exec makedepend $(BSCFLAGS) "*.bs*" > depends.mk
+
+include depends.mk
 
 clean:
-	rm -rf *~ *.h *.o *.so *.cxx *.v *.out bin/ __pycache__/
+	rm -rf *~ *.h *.o *.so *.cxx *.v *.out .contrib depends.mk bin/ __pycache__/
 
-.PHONY: all contrib rtl sim vsim ffi clean
+.PHONY: all common rtl sim vsim ffi clean
