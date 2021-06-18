@@ -13,7 +13,7 @@ else ifeq ($(CONF), test)
   override BSCFLAGS += -Xcpp -DTEST
 endif
 
-all: rtl sim vsim ffi
+all: rtl ffi sim vsim
 
 .contrib:
 	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/GenC install

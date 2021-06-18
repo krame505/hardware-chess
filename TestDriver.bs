@@ -15,16 +15,21 @@ import Randomizable
 import FIFOF
 
 data Command
-  = Config { white :: Config; black :: Config }
-  | RunTrial { randSteps :: UInt 8; depth :: Depth }
+  = Config { randSteps :: UInt 8; depth :: Depth; white :: Config; black :: Config }
+  | RunTrial (UInt 8)
   deriving (Bits)
 
 data TrialOutcome = Win Color | Draw | Error
  deriving (Eq, Bits)
 
+struct TrialResult =
+  rid :: (UInt 8)
+  outcome :: TrialOutcome
+ deriving (Bits)
+
 interface ChessTestMsgs =
   command :: Rx 8 8 Command
-  outcome :: Tx 8 8 TrialOutcome
+  result :: Tx 8 8 TrialResult
 
 {-# verilog mkChessTestDriver #-}
 mkChessTestDriver :: Module ChessDriver
@@ -50,8 +55,10 @@ _mkChessTestDriver = module
 
   whiteConfig :: Reg Config <- mkReg defaultConfig
   blackConfig :: Reg Config <- mkReg defaultConfig
+  depth :: Reg Depth <- mkReg 5
+  randSteps :: Reg (UInt 8) <- mkReg 20
+  rid :: Reg (UInt 8) <- mkReg 0
   trialRunning :: Reg Bool <- mkReg False
-  trialDepth :: Reg Depth <- mkReg 5
   randStepsRemaining :: Reg (UInt 8) <- mkReg 0
   randMoveIndex :: Reg (UInt 8) <- mkReg 0
 
@@ -65,17 +72,19 @@ _mkChessTestDriver = module
     rules
       when not trialRunning
         rules
-          "config": when Config {white; black;} <- msgMgr.fifos.command.first ==> do
-            $display "config " (cshow white) " " (cshow black)
+          "config": when Config {depth=newDepth; randSteps=newRandSteps; white; black;} <- msgMgr.fifos.command.first ==> do
+            $display "config " newDepth " " newRandSteps " " (cshow white) " " (cshow black)
+            depth := newDepth
+            randSteps := newRandSteps
             whiteConfig := white
             blackConfig := black
             msgMgr.fifos.command.deq
 
-          "start_trial": when RunTrial {randSteps; depth;} <- msgMgr.fifos.command.first ==> do
+          "start_trial": when RunTrial trialRid <- msgMgr.fifos.command.first ==> do
             $display "start_trial " (cshow randSteps) " " (cshow depth)
-            randStepsRemaining := randSteps
-            trialDepth := depth
+            rid := trialRid
             trialRunning := True
+            randStepsRemaining := randSteps
             stateUpdates.enq initialState
             rand.cntrl.init
             msgMgr.fifos.command.deq
@@ -90,7 +99,7 @@ _mkChessTestDriver = module
                 i <- rand.next
                 searchCore.server.request.put $ defaultValue {rid=randStepsRemaining; state=stateUpdates.first; depth=1; getMoves=True;}
                 randMoveIndex := i
-              else searchCore.server.request.put $ defaultValue {rid=0; state=stateUpdates.first; depth=trialDepth; config=Just config}
+              else searchCore.server.request.put $ defaultValue {rid=0; state=stateUpdates.first; depth=depth; config=Just config}
             stateUpdates.deq
 
           when not stateUpdates.notEmpty
@@ -123,10 +132,10 @@ _mkChessTestDriver = module
                 case result.outcome of
                   CheckMate -> do
                     trialRunning := False
-                    msgMgr.fifos.outcome.enq $ Win state.turn
+                    msgMgr.fifos.result.enq $ TrialResult {rid=rid; outcome=Win state.turn}
                   Draw -> do
                     trialRunning := False
-                    msgMgr.fifos.outcome.enq Draw
+                    msgMgr.fifos.result.enq $ TrialResult {rid=rid; outcome=Draw}
                   _ ->
                     case result.bestMove of
                       Just move -> do
@@ -134,7 +143,7 @@ _mkChessTestDriver = module
                         moveUpdate.putMove move
                       Nothing -> do
                         trialRunning := False
-                        msgMgr.fifos.outcome.enq Error
+                        msgMgr.fifos.result.enq $ TrialResult {rid=rid; outcome=Error}
                         searchCore.clear
 
   interface
