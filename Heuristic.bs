@@ -17,9 +17,9 @@ struct Config =
 defaultConfig :: Config
 defaultConfig =
   interface Config
-    checkValue = 3
+    checkValue = 0
     centerControlValue = 1
-    castleValue = 2
+    castleValue = 1
     pawnStructureValueDiv = 2
 
 pieceValue :: PieceKind -> Score
