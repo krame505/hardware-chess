@@ -10,6 +10,7 @@ import Clocks
 interface Top =
   tx :: Bit 1 {-# always_ready, always_enabled #-}
   rx :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [rx] #-}
+  statusEnable :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [statusEnable] #-}
   status :: Bit 16 {-# always_ready, always_enabled #-}
 
 clockFreq :: Integer
@@ -55,7 +56,10 @@ mkTop = module
   lastStatus :: Reg (Bit 16) <- mkReg 0
   driverStatus <-> toPut lastStatus._write
 
+  statusEnableReg :: Reg (Bit 1) <- mkReg 1
+
   interface
     tx = uart.rs232.sout
     rx = uart.rs232.sin
-    status = lastStatus
+    statusEnable = statusEnableReg._write
+    status = if statusEnableReg == 1 then lastStatus else 0
