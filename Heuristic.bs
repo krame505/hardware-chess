@@ -55,14 +55,18 @@ defaultHeuristic config state turnInCheck otherTurnInCheck =
   let squareScore Nothing = 0
       squareScore (Just piece) =
         (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
+
       controlScore pos =
-        (if isThreatened state.board (otherColor state.turn) pos || isOccupied state.board state.turn pos then 1 else 0) -
-        (if isThreatened state.board state.turn pos || isOccupied state.board (otherColor state.turn) pos then 1 else 0)
+        let centerThreats = numThreats state.board (otherColor state.turn) pos + (if isOccupied state.board state.turn pos then 1 else 0)
+            centerOtherThreats = numThreats state.board state.turn pos + (if isOccupied state.board (otherColor state.turn) pos then 1 else 0)
+        in if centerThreats > centerOtherThreats then config.centerControlValue
+           else if centerThreats < centerOtherThreats then negate config.centerControlValue
+           else 0
       whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
       blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
   in (foldr1 (+) $ map squareScore $ concat state.board) +
      (if otherTurnInCheck then config.checkValue else 0) - (if turnInCheck then config.checkValue else 0) +
-     config.centerControlValue * (foldr1 (+) $ map controlScore centerPositions) +
+     (foldr1 (+) $ map controlScore centerPositions) +
      (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
      (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
      (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) / config.pawnStructureValueDiv

@@ -295,8 +295,8 @@ isThreatened board player pos =
   let traceRankFile = map (trace board pos) rankFileDisps
       traceDiagonal = map (trace board pos) diagonalDisps
 
-      hasDispMove kind = any (\ d -> dispInBounds pos d && selectPos board (dispPos pos d) == Just (Piece {color=otherColor player; kind=kind;}))
-      hasTraceMove kind = any ((==) (Just (Piece {color=otherColor player; kind=kind;})))
+      isEnemyPiece piece kind = piece == Just (Piece {color=otherColor player; kind=kind;})
+      hasDispMove kind = any (\ d -> dispInBounds pos d && isEnemyPiece (selectPos board (dispPos pos d)) kind)
   in
     (case player of
        -- Moves *to* the selected by the *other player*
@@ -305,9 +305,27 @@ isThreatened board player pos =
     ) ||
     hasDispMove King kingMoves ||
     hasDispMove Knight knightMoves ||
-    hasTraceMove Queen traceRankFile || hasTraceMove Queen traceDiagonal ||
-    hasTraceMove Rook traceRankFile ||
-    hasTraceMove Bishop traceDiagonal
+    any (\ p -> isEnemyPiece p Queen || isEnemyPiece p Rook) traceRankFile ||
+    any (\ p -> isEnemyPiece p Queen || isEnemyPiece p Bishop) traceDiagonal
+
+numThreats :: Board -> Color -> Position -> UInt 4
+numThreats board player pos =
+  let traceRankFile = map (trace board pos) rankFileDisps
+      traceDiagonal = map (trace board pos) diagonalDisps
+
+      isEnemyPiece piece kind = piece == Just (Piece {color=otherColor player; kind=kind;})
+      countDispMove kind disp = if dispInBounds pos disp && isEnemyPiece (selectPos board (dispPos pos disp)) kind then 1 else 0
+      numDispMoves kind = foldr1 (+) `compose` map (countDispMove kind)
+  in
+    (case player of
+       -- Moves *to* the selected by the *other player*
+       White -> numDispMoves Pawn whitePawnMoves
+       Black -> numDispMoves Pawn blackPawnMoves
+    ) +
+    numDispMoves King kingMoves +
+    numDispMoves Knight knightMoves +
+    foldr1 (+) (map (\ p -> if isEnemyPiece p Queen || isEnemyPiece p Rook then 1 else 0) traceRankFile) +
+    foldr1 (+) (map (\ p -> if isEnemyPiece p Queen || isEnemyPiece p Bishop then 1 else 0) traceDiagonal)
 
 kingPos :: Board -> Color -> Position
 kingPos board player =
