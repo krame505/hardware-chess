@@ -1,7 +1,9 @@
 package HwTop where
 
 import Driver
+#ifdef TEST
 import TestDriver
+#endif
 import RS232
 import GetPut
 import Connectable

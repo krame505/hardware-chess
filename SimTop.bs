@@ -1,7 +1,9 @@
 package SimTop where
 
 import Driver
+#ifdef TEST
 import TestDriver
+#endif
 import GetPut
 import PTY
 

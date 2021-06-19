@@ -7,8 +7,10 @@ override BSCFLAGS += +RTS -K1G -RTS -steps-warn-interval 1000000
 CONF ?= rel
 
 ifeq ($(CONF), rel)
+  $(info Building release config)
   LIBNAME = chess
 else ifeq ($(CONF), test)
+  $(info Building test config)
   LIBNAME = chess_test
   override BSCFLAGS += -Xcpp -DTEST
 endif
