@@ -77,7 +77,7 @@ def optimize(client, config, trials):
             config = newConfig
         print("Best config", config)
 
-initialConfig = {'checkValue': 0, 'centerControlValue': 1, 'castleValue': 1, 'pawnStructureValueDiv': 2}
+initialConfig = {'checkValue': 0, 'centerControlValue': 1, 'castleValue': 2, 'pawnStructureValueDiv': 2}
 randSteps = 2
 depth = 7
 trials = 100
@@ -89,4 +89,5 @@ if __name__ == '__main__':
     ser = serial.Serial(sys.argv[1], 115200)
     client = ChessTestClient(ser, randSteps, depth)
     client.start()
+    random.seed(time.time())
     optimize(client, initialConfig, trials)
