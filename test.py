@@ -12,9 +12,8 @@ import time
 import random
 
 class ChessTestClient(msgclient.Client):
-    def __init__(self, serial, randSteps, depth):
+    def __init__(self, serial, depth):
         super().__init__("ChessTestMsgs", ffi, lib, serial)
-        self.randSteps = randSteps
         self.depth = depth
         self.config1 = None
         self.config2 = None
@@ -51,12 +50,17 @@ class ChessTestClient(msgclient.Client):
     def runTrial(self):
         self.awaiting += 1
         config = {
-            'randSteps': self.randSteps, 'depth': self.depth,
+            'depth': self.depth,
             'white': self.config1 if self.white1 else self.config2,
             'black': self.config2 if self.white1 else self.config1
         }
         self.put("command", ffi.new("Command *", {'tag': lib.Command_Config, 'contents': {'Config': config}})[0])
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_RunTrial, 'contents': {'RunTrial': 1 if self.white1 else 0}})[0])
+
+        trialConfig = {
+            'rid': 1 if self.white1 else 0,
+            'initMoves': [random.randrange(20), random.randrange(20)]
+        }
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_RunTrial, 'contents': {'RunTrial': trialConfig}})[0])
         self.white1 = not self.white1
 
     def runTrials(self, trials, config1, config2):
@@ -77,8 +81,7 @@ def optimize(client, config, trials):
             config = newConfig
         print("Best config", config)
 
-initialConfig = {'checkValue': 0, 'centerControlValue': 1, 'castleValue': 2, 'pawnStructureValueDiv': 2}
-randSteps = 2
+initialConfig = {'checkValue': 1, 'centerControlValue': 1, 'castleValue': 2, 'pawnStructureValueDiv': 2}
 depth = 7
 trials = 100
 
@@ -87,7 +90,7 @@ if __name__ == '__main__':
         sys.exit("Expected serial port name")
 
     ser = serial.Serial(sys.argv[1], 115200)
-    client = ChessTestClient(ser, randSteps, depth)
+    client = ChessTestClient(ser, depth)
     client.start()
     random.seed(time.time())
     optimize(client, initialConfig, trials)

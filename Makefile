@@ -29,18 +29,16 @@ $(BUILDDIR):
 $(BUILDDIR)/%.bo: %.bs .contrib | $(BUILDDIR)
 	bsc $(BSCFLAGS) -verilog -elab $<
 
+ifeq ($(CONF), rel)
 common: $(BUILDDIR)/Driver.bo
+else ifeq ($(CONF), test)
+common: $(BUILDDIR)/TestDriver.bo
+endif
 
 rtl: common
-ifeq ($(CONF), test)
-	bsc $(BSCFLAGS) -verilog TestDriver.bs
-endif
 	bsc $(BSCFLAGS) -verilog HwTop.bs
 
 sim: common
-ifeq ($(CONF), test)
-	bsc $(BSCFLAGS) -sim TestDriver.bs
-endif
 	bsc $(BSCFLAGS) -sim PTY.bsv
 	bsc $(BSCFLAGS) -sim SimTop.bs
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
