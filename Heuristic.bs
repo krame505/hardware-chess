@@ -11,16 +11,16 @@ struct Config =
   checkValue :: Score
   centerControlValue :: Score
   castleValue :: Score
-  pawnStructureValueDiv :: Score
+  pawnStructureValue :: Score
  deriving (Bits)
 
 defaultConfig :: Config
 defaultConfig =
   interface Config
-    checkValue = 0
-    centerControlValue = 1
-    castleValue = 1
-    pawnStructureValueDiv = 2
+    checkValue = 1
+    centerControlValue = 8
+    castleValue = 12
+    pawnStructureValue = 4
 
 pieceValue :: PieceKind -> Score
 pieceValue Pawn = 1
@@ -65,8 +65,8 @@ defaultHeuristic config state turnInCheck otherTurnInCheck =
       whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
       blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
   in (foldr1 (+) $ map squareScore $ concat state.board) +
-     (if otherTurnInCheck then config.checkValue else 0) - (if turnInCheck then config.checkValue else 0) +
-     (foldr1 (+) $ map controlScore centerPositions) +
-     (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
-     (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
-     (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) / config.pawnStructureValueDiv
+     ((if otherTurnInCheck then config.checkValue else 0) - (if turnInCheck then config.checkValue else 0) +
+      (foldr1 (+) $ map controlScore centerPositions) +
+      (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
+      (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
+      (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) * config.pawnStructureValue) / 4
