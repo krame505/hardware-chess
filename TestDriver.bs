@@ -68,7 +68,9 @@ _mkChessTestDriver = module
   addRules $
     rules
       {-# ASSERT fire when enabled #-}
-      "get_update_result": when True ==> stateUpdates.enq moveUpdate.newState
+      "get_update_result": when True ==> do
+        stateUpdates.enq moveUpdate.nextState
+        moveUpdate.deq
     `rJoinDescendingUrgency`
     rules
       when not trialRunning
@@ -107,8 +109,7 @@ _mkChessTestDriver = module
                     rules
                       "do_initial_move": when initMoveIndex == 0 ==> do
                         $display "do_initial_move " initMoveIndex
-                        moveUpdate.putState state
-                        moveUpdate.putMove m
+                        moveUpdate.enq state m
                         searchCore.clear
                         numInitMoves := numInitMoves - 1
 
@@ -136,9 +137,7 @@ _mkChessTestDriver = module
                     msgMgr.fifos.result.enq $ TrialResult {rid=rid; outcome=Draw}
                   _ ->
                     case result.bestMove of
-                      Just move -> do
-                        moveUpdate.putState state
-                        moveUpdate.putMove move
+                      Just move -> moveUpdate.enq state move
                       Nothing -> do
                         trialRunning := False
                         msgMgr.fifos.result.enq $ TrialResult {rid=rid; outcome=Error}
