@@ -6,12 +6,7 @@ events.onmessage = function (e) {
   update()
 }
 events.onerror = function() {
-  console.log("EventSource failed.");
-};
-
-function init() {
-  update()
-  updateConfig()
+  console.log("EventSource failed.")
 }
 
 const whitePieces = {'King': '♔', 'Queen': '♕', 'Rook': '♖', 'Bishop': '♗', 'Knight': '♘', 'Pawn': '♙'}

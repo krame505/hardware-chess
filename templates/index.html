@@ -10,12 +10,12 @@
     <title>FPGA Chess</title>
   </head>
 
-  <body onload="init()">
+  <body onload="update()">
     <h1>FPGA Chess</h1>
 
     <button onclick="reset()">Reset game</button>&nbsp;
     <label>White AI</label><input type="checkbox" id="whiteAI" onchange="updateConfig()">&nbsp;
-    <label>Black AI</label><input type="checkbox" id="blackAI" onchange="updateConfig()" checked>&nbsp;
+    <label>Black AI</label><input type="checkbox" id="blackAI" onchange="updateConfig()">&nbsp;
     <label>AI turn length (seconds): </label><input type="number" value="5" min="1" max="60" id="timeout" onchange="updateTimeout()">&nbsp;
 
     <h2 id="lastEvent"></h2>
