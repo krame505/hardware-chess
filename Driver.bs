@@ -12,7 +12,7 @@ import CShow
 
 data Command = GetState
              | Move Move
-             | GetSearchMove { rid :: RequestId; depth :: Depth; }
+             | Query { rid :: RequestId; depth :: Depth; getMoves :: Bool }
              | CancelSearch
              | Reset
   deriving (Bits)
@@ -20,7 +20,6 @@ data Command = GetState
 interface ChessMsgs =
   command :: Rx 2 2 Command
   state :: Tx 2 2 State
-  outcome :: Tx 2 2 Outcome
   moves :: Tx 64 8 MoveResponse
   searchResult :: Tx 2 2 SearchResult
 
@@ -51,50 +50,37 @@ _mkChessDriver = module
   searchCore <- mkParallelSearchCore
 
   searchCore.moves <-> toPut msgMgr.fifos.moves
+  searchCore.server.response <-> toPut msgMgr.fifos.searchResult
 
-  let updateState newState = do
-        state := newState
-        searchCore.server.request.put $ defaultValue {rid=0; state=newState; depth=1; getMoves=True;}
-        msgMgr.fifos.state.enq newState
+  rules
+    when not moveUpdate.hasRequest
+      rules
+        "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
+          $display "handle_GetState"
+          msgMgr.fifos.state.enq state
+          msgMgr.fifos.command.deq
+        "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
+          $display "handle_Move"
+          moveUpdate.enq state m
+          msgMgr.fifos.command.deq
+        "handle_Query": when Query {rid; depth; getMoves;} <- msgMgr.fifos.command.first ==> do
+          $display "handle_Query"
+          searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; getMoves=getMoves;}
+          msgMgr.fifos.command.deq
+        "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
+          $display "handle_CancelSearch"
+          searchCore.clear
+          msgMgr.fifos.command.deq
+        "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
+          $display "handle_Reset"
+          state := initialState
+          searchCore.clear
+          msgMgr.fifos.command.deq
 
-      commandRules =
-        rules
-          "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
-            $display "handle_GetState"
-            updateState state
-            msgMgr.fifos.command.deq
-          "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
-            $display "handle_Move"
-            moveUpdate.enq state m
-            msgMgr.fifos.command.deq
-          "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
-            $display "handle_GetSearchMove"
-            searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth;}
-            msgMgr.fifos.command.deq
-          "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
-            $display "handle_CancelSearch"
-            searchCore.clear
-            msgMgr.fifos.command.deq
-          "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
-            $display "handle_Reset"
-            updateState $ initialState
-            msgMgr.fifos.command.deq
-
-      updateRules =
-        rules
-          "report_move_update": when True ==> do
-            $display "report_move_update"
-            updateState moveUpdate.nextState
-            moveUpdate.deq
-
-          "report_search_outcome": when True ==> do
-            $display "report_search_outcome"
-            result <- searchCore.server.response.get
-            if result.rid == 0
-              then msgMgr.fifos.outcome.enq result.outcome
-              else msgMgr.fifos.searchResult.enq result
-
-  addRules $ commandRules `rJoinDescendingUrgency` updateRules
+    "update_state": when moveUpdate.hasRequest ==> do
+      $display "update_state"
+      state := moveUpdate.nextState
+      moveUpdate.deq
 
   interface
     txData = enc.byte

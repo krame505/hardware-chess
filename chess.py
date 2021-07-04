@@ -62,6 +62,16 @@ def strMove(state, move):
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
+def strOutcome(outcome):
+    if outcome == lib.Outcome_Check:
+        return " - Check"
+    elif outcome == lib.Outcome_CheckMate:
+        return " - Checkmate"
+    elif outcome == lib.Outcome_Draw:
+        return " - Draw"
+    else:
+        return ""
+
 class ChessClient(msgclient.Client):
     def __init__(self, serial, callback, timeout=5):
         super().__init__("ChessMsgs", ffi, lib, serial)
@@ -81,7 +91,7 @@ class ChessClient(msgclient.Client):
 
     def start(self):
         super().start()
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+        self.updateState()
         self.event = "Server restarted"
         self.callback(self.event)
 
@@ -89,7 +99,8 @@ class ChessClient(msgclient.Client):
         update = False
         while state := self.get("state"):
             self.state = state
-            self.stateId = (self.stateId + 1) % 256
+            self.stateId = self.stateId % 255 + 1
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_Query, 'contents': {'Query': {'rid': 0, 'depth': 1, 'getMoves': True}}})[0])
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
@@ -100,23 +111,15 @@ class ChessClient(msgclient.Client):
                 self.moves = self._movesAccum
                 self._movesAccum = []
                 update = True
-        while outcome := self.get("outcome"):
-            if self.outcome is None:
-                self.outcome = outcome.tag
-                if self.outcome == lib.Outcome_Check:
-                    self.event += " - Check"
-                    update = True
-                elif self.outcome == lib.Outcome_CheckMate:
-                    self.event += " - Checkmate"
-                    update = True
-                elif self.outcome == lib.Outcome_Draw:
-                    self.event += " - Draw"
-                    update = True
-            if ((self.outcome == lib.Outcome_NoOutcome or self.outcome == lib.Outcome_Check) and
-                ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
-                self.startSearch()
         while searchResult := self.get("searchResult"):
-            if self.searchTimer is not None and searchResult.rid == self.stateId and searchResult.bestMove.tag == lib.Maybe_Move_Valid:
+            if searchResult.rid == 0:
+                self.outcome = searchResult.outcome.tag
+                if self.outcome != lib.Outcome_NoOutcome:
+                    update = True
+                if ((self.outcome == lib.Outcome_NoOutcome or self.outcome == lib.Outcome_Check) and
+                    ((self.state.turn.tag == lib.Color_Black and self.blackAI) or (self.state.turn.tag == lib.Color_White and self.whiteAI))):
+                    self.startSearch()
+            elif searchResult.rid == self.stateId and self.searchTimer is not None and searchResult.bestMove.tag == lib.Maybe_Move_Valid:
                 print("Got valid search move", strMove(self.state, searchResult.bestMove.contents.Valid), searchResult.score)
                 self.bestMove = ffi.new("Move *", searchResult.bestMove.contents.Valid)[0]
                 self.depth += 1
@@ -126,7 +129,7 @@ class ChessClient(msgclient.Client):
                 print("Did not get a valid search move")
 
         if update:
-            self.callback(self.event)
+            self.callback(self.event + strOutcome(self.outcome))
 
     def startSearch(self):
         if self.searchTimer is None:
@@ -145,6 +148,7 @@ class ChessClient(msgclient.Client):
         else:
             print("Sending best move")
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
+            self.updateState()
             self.event = strMove(self.state, self.bestMove)
             self.bestMove = None
             self.outcome = None
@@ -155,8 +159,11 @@ class ChessClient(msgclient.Client):
             self.searchTimer.cancel()
             self.searchTimer = None
 
+    def updateState(self):
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+
     def requestSearchMove(self):
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetSearchMove, 'contents': {'GetSearchMove': {'rid': self.stateId, 'depth': self.depth}}})[0])
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_Query, 'contents': {'Query': {'rid': self.stateId, 'depth': self.depth, 'getMoves': False}}})[0])
 
     def jsonStatus(self):
         if self.state:
@@ -171,12 +178,13 @@ class ChessClient(msgclient.Client):
     def move(self, i):
         if (self.state.turn.tag == lib.Color_Black and not self.blackAI) or (self.state.turn.tag == lib.Color_White and not self.whiteAI):
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
+            self.updateState()
             self.event = strMove(self.state, self.moves[i])
             self.outcome = None
 
     def reset(self):
         self.cancelSearch()
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
+        self.updateState()
         self.event = "Game reset"
         self.outcome = None
 
@@ -184,4 +192,4 @@ class ChessClient(msgclient.Client):
         self.whiteAI = whiteAI
         self.blackAI = blackAI
         self.cancelSearch()
-        self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
+        self.updateState()
