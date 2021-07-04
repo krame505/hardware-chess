@@ -18,9 +18,6 @@ interface Top =
 clockFreq :: Integer
 clockFreq = 100000000
 
-clockDivisor :: Integer
-clockDivisor = 5
-
 baud :: Integer
 baud = 115200
 
@@ -32,11 +29,9 @@ mkDriver = mkChessDriver
 #endif
 
 {-# verilog mkTop #-}
-mkTop :: Module Top
-mkTop = module
-  clockDivider <- mkClockDivider clockDivisor
-  reset <- mkReset clockDivisor True clockDivider.slowClock
-  driver <- changeSpecialWires (Just clockDivider.slowClock) (Just reset.new_rst) Nothing mkDriver
+mkTop :: Clock -> Reset -> Module Top
+mkTop slowClock slowReset = module
+  driver <- changeSpecialWires (Just slowClock) (Just slowReset) Nothing mkDriver
   driverTx <- mkConverter 2 driver.txData
   driverRx <- mkConverter 2 driver.rxData
 

@@ -22,6 +22,7 @@
 
 set_property -dict { PACKAGE_PIN E3    IOSTANDARD LVCMOS33 } [get_ports { CLK }]; #IO_L12P_T1_MRCC_35 Sch=gclk[100]
 create_clock -add -name sys_clk_pin -period 10.00 -waveform {0 5} [get_ports {CLK}];
+#create_generated_clock -name div_clk -source [get_ports {CLK}] -period 3.33 -waveform {0 5};
 
 
 ##Switches

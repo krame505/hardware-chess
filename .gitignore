@@ -13,3 +13,5 @@ __pycache__/
 *.runs/
 *.ip_user_files/
 *.sim/
+*.gen/
+*.srcs/
