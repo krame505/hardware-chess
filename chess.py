@@ -184,6 +184,7 @@ class ChessClient(msgclient.Client):
 
     def reset(self):
         self.cancelSearch()
+        self.put("command", ffi.new("Command *", {'tag': lib.Command_Reset})[0])
         self.updateState()
         self.event = "Game reset"
         self.outcome = None
