@@ -26,11 +26,10 @@ sysChessVSim = module
       result <- searchCore.server.response.get
       $display (cshow result)
       case result.bestMove of
-        Just m -> do
-          moveUpdate.putState state
-          moveUpdate.putMove m
+        Just m -> moveUpdate.enq state m
         Nothing -> $finish
     "put_query": when init ==> do
-      $display moveUpdate.newState
-      state := moveUpdate.newState
-      searchCore.server.request.put $ defaultValue {rid=0; state=moveUpdate.newState; depth=searchDepth;}
+      $display moveUpdate.nextState
+      state := moveUpdate.nextState
+      searchCore.server.request.put $ defaultValue {rid=0; state=moveUpdate.nextState; depth=searchDepth;}
+      moveUpdate.deq

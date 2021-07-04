@@ -5,6 +5,7 @@ import qualified List
 import GetPut
 import BuildVector
 import FIFO
+import FIFOF
 import GenCRepr
 import qualified State
 import CShow
@@ -118,15 +119,21 @@ updatePos :: Board -> Position -> Maybe Piece -> Board
 updatePos b pos p = update b pos.rank (update (select b pos.rank) pos.file p)
 
 interface MoveUpdate =
-  putState :: State -> Action
-  putMove :: Move -> Action
-  newState :: State
+  enq :: State -> Move -> Action
+  nextMove :: Move
+  nextState :: State
+  deq :: Action
+  clear :: Action
+  hasRequest :: Bool
+  ready :: Bool
 
 {-# verilog mkMoveUpdate #-}
 mkMoveUpdate :: Module MoveUpdate
 mkMoveUpdate = module
-  state :: Wire State <- mkWire
-  move :: Wire Move <- mkWire
+  requests :: FIFOF (State, Move) <- mkFIFOF
+  let (state, move) = requests.first
+
+  responses :: FIFOF (State, Move) <- mkFIFOF
 
   fromPos :: Wire Position <- mkWire
   rules
@@ -233,16 +240,27 @@ mkMoveUpdate = module
           castled = state.turn == Black
       newLastProgressMove := state.lastProgressMove + 1
 
+    "put_response": when True ==> do
+      responses.enq
+        (interface State
+           turn = otherColor state.turn
+           board = (results !! 3)._read
+           whiteHist = newWhiteHist
+           blackHist = newBlackHist
+           lastProgressMove = newLastProgressMove
+         , move)
+      requests.deq
+
   interface
-    putState = state._write
-    putMove = move._write
-    newState =
-      interface State
-        turn = otherColor state.turn
-        board = (results !! 3)._read
-        whiteHist = newWhiteHist
-        blackHist = newBlackHist
-        lastProgressMove = newLastProgressMove
+    enq s m = requests.enq (s, m)
+    nextMove = responses.first.snd
+    nextState = responses.first.fst
+    deq = responses.deq
+    clear = do
+      requests.clear
+      responses.clear
+    hasRequest = requests.notEmpty || responses.notEmpty
+    ready = responses.notEmpty
 
 dispInBounds :: Position -> (Integer, Integer) -> Bool
 dispInBounds pos (x, y) =
@@ -386,7 +404,7 @@ interface MoveEval =
 {-# verilog mkMoveEval #-}
 mkMoveEval :: Module MoveEval
 mkMoveEval = module
-  states :: FIFO State <- mkSizedFIFO 1
+  states :: FIFO State <- mkFIFO
   moves :: FIFO MoveResponse <- mkFIFO
   clearCommand :: PulseWire <- mkPulseWire
   let state = states.first

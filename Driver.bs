@@ -65,8 +65,7 @@ _mkChessDriver = module
             msgMgr.fifos.command.deq
           "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
             $display "handle_Move"
-            moveUpdate.putState state
-            moveUpdate.putMove m
+            moveUpdate.enq state m
             msgMgr.fifos.command.deq
           "handle_GetSearchMove": when GetSearchMove {rid=rid; depth=depth;} <- msgMgr.fifos.command.first ==> do
             $display "handle_GetSearchMove"
@@ -85,7 +84,8 @@ _mkChessDriver = module
         rules
           "report_move_update": when True ==> do
             $display "report_move_update"
-            updateState moveUpdate.newState
+            updateState moveUpdate.nextState
+            moveUpdate.deq
 
           "report_search_outcome": when True ==> do
             $display "report_search_outcome"

@@ -5,10 +5,9 @@ import BuildVector
 import Chess
 
 type Score = Int 8
-type Heuristic c = c -> State -> Bool -> Bool -> Score
+type Heuristic c = c -> State -> Score
 
 struct Config =
-  checkValue :: Score
   centerControlValue :: Score
   castleValue :: Score
   pawnStructureValue :: Score
@@ -17,7 +16,6 @@ struct Config =
 defaultConfig :: Config
 defaultConfig =
   interface Config
-    checkValue = 1
     centerControlValue = 8
     castleValue = 12
     pawnStructureValue = 4
@@ -51,7 +49,7 @@ pawnStructureScore board turn pos =
     else 0
 
 defaultHeuristic :: Heuristic Config
-defaultHeuristic config state turnInCheck otherTurnInCheck =
+defaultHeuristic config state =
   let squareScore Nothing = 0
       squareScore (Just piece) =
         (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
@@ -65,8 +63,7 @@ defaultHeuristic config state turnInCheck otherTurnInCheck =
       whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
       blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
   in (foldr1 (+) $ map squareScore $ concat state.board) +
-     ((if otherTurnInCheck then config.checkValue else 0) - (if turnInCheck then config.checkValue else 0) +
-      (foldr1 (+) $ map controlScore centerPositions) +
+     ((foldr1 (+) $ map controlScore centerPositions) +
       (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
       (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
       (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) * config.pawnStructureValue) / 4
