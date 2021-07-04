@@ -205,12 +205,10 @@ mkSearchCore heuristic initConfig dispatchCores = module
                     -- This exists to avoid deadlocking if a state somehow has > 60 valid moves
                     ("discard_overflow_state_" +++ integerToString frameIndex): when not movesComplete, not currentPlayerInCheck, not isTerminal, not currentFrame.moves.notFull ==> do
                       $display depthStr " discard_overflow_state " (cshow currentFrame.moves.first)
-                      if frameIndex == 0 then enqInitialMove else noAction
                       currentFrame.moves.deq
 
                     ("ignore_check_state_" +++ integerToString frameIndex): when currentPlayerInCheck ==> do
                       $display depthStr " ignore_check_state " (cshow currentFrame.moves.first)
-                      if frameIndex == 0 then enqInitialMove else noAction
                       currentFrame.moves.deq
 
                     ("heuristic_state_" +++ integerToString frameIndex): when not currentPlayerInCheck, isTerminal ==> do
@@ -226,6 +224,7 @@ mkSearchCore heuristic initConfig dispatchCores = module
                           $display depthStr " push_state " (cshow currentFrame.moves.first) " " stateHeuristicScore
                           pushState nextFrame (negate currentFrame.beta) (negate currentFrame.alpha)
                           if frameIndex == 0 then currentMove := currentFrame.moves.first else noAction
+                          if frameIndex == 0 then enqInitialMove else noAction
                           currentFrame.moves.deq
                           stackSize := fromInteger frameIndex + 2
 
