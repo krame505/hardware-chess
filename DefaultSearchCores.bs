@@ -1,0 +1,26 @@
+package DefaultSearchCores where
+
+import SearchCore
+import DefaultHeuristic
+import Vector
+
+{-# verilog mkSingleSearchCore #-}
+mkSingleSearchCore :: Module (SearchCore Config 14)
+mkSingleSearchCore = mkSearchCore defaultHeuristic nil
+
+{-# verilog mkParallelSearchCore #-}
+mkParallelSearchCore :: Module (SearchCore Config 15)
+mkParallelSearchCore = module
+  worker1 <- mkSingleSearchCore
+  worker2 <- mkSingleSearchCore
+  --worker3 <- mkSingleSearchCore
+  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 {-:> worker3-} :> nil
+
+  interface
+    server = main.server
+    moves = main.moves
+    clear = main.clear
+    status =
+      ((split main.status).fst :: Bit 8) ++
+      ((split ((split worker1.status).fst :: Bit 8)).snd :: Bit 4) ++
+      ((split ((split worker2.status).fst :: Bit 8)).snd :: Bit 4)

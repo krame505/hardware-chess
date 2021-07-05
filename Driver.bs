@@ -2,6 +2,7 @@ package Driver where
 
 import Chess
 import SearchCore
+import DefaultSearchCores
 import GenCMsg
 import GenCRepr
 import GetPut

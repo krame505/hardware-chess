@@ -2,6 +2,7 @@ package VSimTop where
 
 import Chess
 import SearchCore
+import DefaultSearchCores
 import CShow
 import GetPut
 import ClientServer

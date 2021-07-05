@@ -1,7 +1,6 @@
 package SearchCore where
 
 import Chess
-import Heuristic
 import FIFO
 import FIFOF
 import GetPut
@@ -10,6 +9,9 @@ import Connectable
 import qualified List
 import Vector
 import CShow
+
+type Score = Int 8
+type Heuristic c = c -> State -> Score
 
 type RequestId = UInt 8
 type Depth = UInt 8
@@ -33,10 +35,10 @@ struct SearchQuery config =
   getMoves :: Bool
   alpha :: Maybe Score
   beta :: Maybe Score
-  config :: Maybe config
+  config :: config
  deriving (Bits)
 
-instance DefaultValue (SearchQuery config) where
+instance (DefaultValue config) => DefaultValue (SearchQuery config) where
   defaultValue =
     interface SearchQuery
       rid = 0
@@ -45,7 +47,7 @@ instance DefaultValue (SearchQuery config) where
       getMoves = False
       alpha = Nothing
       beta = Nothing
-      config = Nothing
+      config = defaultValue
 
 struct SearchResult =
   rid :: RequestId
@@ -116,12 +118,12 @@ interface (SearchCore :: * -> # -> *) config stackSize =
 
 mkSearchCore ::
   (Add dispatchDepth 1 maxDepth, Bits config cb, CShow config) =>
-  Heuristic config -> config -> Vector numDispatch (SearchCore config dispatchDepth) ->
+  Heuristic config -> Vector numDispatch (SearchCore config dispatchDepth) ->
   Module (SearchCore config maxDepth)
-mkSearchCore heuristic initConfig dispatchCores = module
+mkSearchCore heuristic dispatchCores = module
   queries :: FIFO (SearchQuery config) <- mkSizedFIFO 1
   results :: FIFO SearchResult <- mkFIFO
-  cfg :: Reg config <- mkReg initConfig
+  cfg :: Reg config <- mkReg _
 
   let rid = queries.first.rid
   depth :: Reg Depth <- mkReg 0  -- This is a register in order to be always ready for the status
@@ -274,7 +276,7 @@ mkSearchCore heuristic initConfig dispatchCores = module
                     getMoves = False;
                     alpha = Just $ negate bottomFrame.beta;
                     beta = Just $ negate bottomFrame.alpha;
-                    config = Just cfg;
+                    config = cfg;
                   }
                   $display ("dispatch_query_" +++ integerToString i +++ " ") (cshow dispatchMoveUpdate.nextMove) " " (cshow query)
                   (dispatchMoves !! i).enq dispatchMoveUpdate.nextMove
@@ -332,8 +334,7 @@ mkSearchCore heuristic initConfig dispatchCores = module
               "push_query_state": when stackSize == 0, queries.first.depth > 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
                 $display "0 push_query_state " (cshow queries.first)
                 depth := queries.first.depth
-                case queries.first.config of
-                  Just newConfig -> cfg := newConfig
+                cfg := queries.first.config
                 pushState bottomFrame (fromMaybe minScore queries.first.alpha) (fromMaybe maxScore queries.first.beta)
                 stackSize := 1
 
@@ -370,26 +371,4 @@ mkSearchCore heuristic initConfig dispatchCores = module
     clear = clear.send
 
     status = ((truncate $ pack depth) :: Bit 4) ++ ((truncate $ pack stackSize) :: Bit 4) ++ 0
-
-
-{-# verilog mkSingleSearchCore #-}
-mkSingleSearchCore :: Module (SearchCore Config 14)
-mkSingleSearchCore = mkSearchCore defaultHeuristic defaultConfig nil
-
-{-# verilog mkParallelSearchCore #-}
-mkParallelSearchCore :: Module (SearchCore Config 15)
-mkParallelSearchCore = module
-  worker1 <- mkSingleSearchCore
-  worker2 <- mkSingleSearchCore
-  --worker3 <- mkSingleSearchCore
-  main <- mkSearchCore defaultHeuristic defaultConfig $ worker1 :> worker2 {-:> worker3-} :> nil
-
-  interface
-    server = main.server
-    moves = main.moves
-    clear = main.clear
-    status =
-      ((split main.status).fst :: Bit 8) ++
-      ((split ((split worker1.status).fst :: Bit 8)).snd :: Bit 4) ++
-      ((split ((split worker2.status).fst :: Bit 8)).snd :: Bit 4)
 

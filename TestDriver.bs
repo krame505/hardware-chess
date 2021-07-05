@@ -2,7 +2,8 @@ package TestDriver where
 
 import Chess
 import SearchCore
-import Heuristic
+import DefaultSearchCores
+import DefaultHeuristic
 import Driver
 import GenCMsg
 import GenCRepr
@@ -54,8 +55,8 @@ _mkChessTestDriver = module
   moveUpdate <- mkMoveUpdate
   searchCore <- mkParallelSearchCore
 
-  whiteConfig :: Reg Config <- mkReg defaultConfig
-  blackConfig :: Reg Config <- mkReg defaultConfig
+  whiteConfig :: Reg Config <- mkReg defaultValue
+  blackConfig :: Reg Config <- mkReg defaultValue
   depth :: Reg Depth <- mkReg 5
   rid :: Reg (UInt 8) <- mkReg 0
   trialRunning :: Reg Bool <- mkReg False
@@ -98,7 +99,7 @@ _mkChessTestDriver = module
             state := stateUpdates.first
             if numInitMoves > 0
               then searchCore.server.request.put $ defaultValue {rid=extend numInitMoves; state=stateUpdates.first; depth=1; getMoves=True;}
-              else searchCore.server.request.put $ defaultValue {rid=0; state=stateUpdates.first; depth=depth; config=Just config}
+              else searchCore.server.request.put $ defaultValue {rid=0; state=stateUpdates.first; depth=depth; config=config}
             stateUpdates.deq
 
           when not stateUpdates.notEmpty

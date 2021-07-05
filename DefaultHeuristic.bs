@@ -1,11 +1,9 @@
-package Heuristic where
+package DefaultHeuristic where
 
 import Vector
 import BuildVector
 import Chess
-
-type Score = Int 8
-type Heuristic c = c -> State -> Score
+import SearchCore
 
 struct Config =
   centerControlValue :: Score
@@ -14,13 +12,13 @@ struct Config =
   pawnStructureValue :: Score
  deriving (Bits)
 
-defaultConfig :: Config
-defaultConfig =
-  interface Config
-    centerControlValue = 8
-    extendedCenterControlValue = 4
-    castleValue = 12
-    pawnStructureValue = 4
+instance DefaultValue Config where
+  defaultValue =
+    interface Config
+      centerControlValue = 0
+      extendedCenterControlValue = 4
+      castleValue = 11
+      pawnStructureValue = 4
 
 pieceValue :: PieceKind -> Score
 pieceValue Pawn = 1

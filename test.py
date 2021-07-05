@@ -74,14 +74,14 @@ class ChessTestClient(msgclient.Client):
 def optimize(client, config, trials):
     while True:
         newConfig = config.copy()
-        newConfig[random.choice(list(config.keys()))] += random.choice((1, -1))
+        newConfig[random.choice(list(config.keys()))] += random.choice((2, 1, -1, -2))
         print("Trying config", newConfig)
         w1, w2, d, e = client.runTrials(trials, config, newConfig)
         if w2 > w1:
             config = newConfig
         print("Best config", config)
 
-initialConfig = {'centerControlValue': 8, 'extendedCenterControlValue': 4, 'castleValue': 12, 'pawnStructureValue': 4}
+initialConfig = {'centerControlValue': 9, 'extendedCenterControlValue': 4, 'castleValue': 11, 'pawnStructureValue': 4}
 depth = 7
 trials = 100
 
