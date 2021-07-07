@@ -10,13 +10,22 @@ import ClientServer
 import Connectable
 import COBS
 import CShow
+import FIFO
 
 data Command = GetState
              | Move Move
-             | Query { rid :: RequestId; depth :: Depth; getMoves :: Bool }
+             | Query { rid :: RequestId; move :: Maybe Move; depth :: Depth; alpha :: Maybe Score; beta :: Maybe Score; getMoves :: Bool }
              | CancelSearch
              | Reset
   deriving (Bits)
+
+struct MoveQuery =
+  rid :: RequestId
+  depth :: Depth
+  alpha :: Maybe Score
+  beta :: Maybe Score
+  getMoves :: Bool
+ deriving (Bits)
 
 interface ChessMsgs =
   command :: Rx 2 2 Command
@@ -48,6 +57,7 @@ _mkChessDriver = module
 
   state :: Reg State <- mkReg initialState
   moveUpdate <- mkMoveUpdate
+  moveQueries :: FIFO (Maybe MoveQuery) <- mkSizedFIFO 4
   searchCore <- mkParallelSearchCore
 
   searchCore.moves <-> toPut msgMgr.fifos.moves
@@ -63,10 +73,17 @@ _mkChessDriver = module
         "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
           $display "handle_Move"
           moveUpdate.enq state m
+          moveQueries.enq Nothing
+          searchCore.clear
           msgMgr.fifos.command.deq
-        "handle_Query": when Query {rid; depth; getMoves;} <- msgMgr.fifos.command.first ==> do
+        "handle_Query": when Query {rid; move; depth; alpha; beta; getMoves;} <- msgMgr.fifos.command.first ==> do
           $display "handle_Query"
-          searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; getMoves=getMoves;}
+          case move of
+            Just m -> do
+              moveUpdate.enq state m
+              moveQueries.enq $ Just $ MoveQuery {rid=rid; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
+            Nothing ->
+              searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
           msgMgr.fifos.command.deq
         "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
           $display "handle_CancelSearch"
@@ -78,10 +95,14 @@ _mkChessDriver = module
           searchCore.clear
           msgMgr.fifos.command.deq
 
-    "update_state": when moveUpdate.hasRequest ==> do
-      $display "update_state"
-      state := moveUpdate.nextState
+    "handle_move_update": when moveUpdate.hasRequest ==> do
+      $display "handle_move_update"
+      case moveQueries.first of
+        Nothing -> state := moveUpdate.nextState
+        Just (MoveQuery {rid; depth; alpha; beta; getMoves}) ->
+          searchCore.server.request.put $ defaultValue {rid=rid; state=moveUpdate.nextState; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
       moveUpdate.deq
+      moveQueries.deq
 
   interface
     txData = enc.byte

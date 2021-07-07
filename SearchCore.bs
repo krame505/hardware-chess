@@ -25,7 +25,7 @@ maxScore = maxBound
 moveQueueSize :: Integer
 moveQueueSize = 60
 
-data Outcome = NoOutcome | Check | CheckMate | Draw
+data Outcome = Invalid | NoOutcome | Check | CheckMate | Draw
   deriving (Bits)
 
 struct SearchQuery config =
@@ -328,7 +328,7 @@ mkSearchCore heuristic dispatchCores = module
             rules
               "invalid_query_depth": when stackSize == 0, queries.first.depth == 0 || queries.first.depth > fromInteger (valueOf maxDepth) ==> do
                 $display "0 invalid_query_depth " (cshow queries.first)
-                results.enq $ SearchResult {rid=rid; outcome=NoOutcome; bestMove=Nothing; forcedOutcome=False; score=0; depth=depth;}
+                results.enq $ SearchResult {rid=rid; outcome=Invalid; bestMove=Nothing; forcedOutcome=False; score=0; depth=depth;}
                 queries.deq
 
               "push_query_state": when stackSize == 0, queries.first.depth > 0, queries.first.depth <= fromInteger (valueOf maxDepth) ==> do
