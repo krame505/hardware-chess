@@ -192,7 +192,7 @@ class ChessClient(msgclient.Client):
                     'rid': i + 1,
                     'move': {'tag': lib.Maybe_Move_Valid, 'contents': {'Valid': self.moves[i]}},
                     'depth': self.depth - 1,
-                    'alpha': {'tag': lib.Maybe_int8_Invalid} if self.depthBestScore is None else {'tag': lib.Maybe_int8_Valid, 'contents': {'Valid': self.depthBestScore}},
+                    'beta': {'tag': lib.Maybe_int8_Invalid} if self.depthBestScore is None else {'tag': lib.Maybe_int8_Valid, 'contents': {'Valid': -self.depthBestScore}},
                     'getMoves': False
                 }
             }
