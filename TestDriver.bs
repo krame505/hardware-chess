@@ -31,7 +31,7 @@ struct TrialResult =
  deriving (Bits)
 
 interface ChessTestMsgs =
-  command :: Rx 8 8 Command
+  command :: Rx 1 1 Command
   result :: Tx 8 8 TrialResult
 
 {-# verilog mkChessTestDriver #-}

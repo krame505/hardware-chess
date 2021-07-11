@@ -67,6 +67,8 @@ class ChessTestClient(msgclient.Client):
         self.config(config1, config2)
         for i in range(trials):
             self.runTrial()
+            if self.wins1 > trials / 2 or self.wins2 > trials / 2:
+                break
         while self.awaiting:
             time.sleep(0.5)
         return self.wins1, self.wins2, self.draws, self.errors
@@ -74,16 +76,19 @@ class ChessTestClient(msgclient.Client):
 def optimize(client, config, trials):
     while True:
         newConfig = config.copy()
-        newConfig[random.choice(list(config.keys()))] += random.choice((2, 1, -1, -2))
+        param = random.choice(list(config.keys()))
+        newConfig[param] += random.choice((2, 1, -1, -2))
+        while newConfig[param] < 0:
+            newConfig[param] = config[param] + random.choice((2, 1, -1, -2))
         print("Trying config", newConfig)
         w1, w2, d, e = client.runTrials(trials, config, newConfig)
         if w2 > w1:
             config = newConfig
         print("Best config", config)
 
-initialConfig = {'centerControlValue': 9, 'extendedCenterControlValue': 4, 'castleValue': 12, 'pawnStructureValue': 3}
+initialConfig = {'centerControlValue': 4, 'extendedCenterControlValue': 2, 'castleValue': 12, 'pawnStructureValue': 2}
 depth = 7
-trials = 100
+trials = 50
 
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
