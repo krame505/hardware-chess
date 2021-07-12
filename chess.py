@@ -90,6 +90,8 @@ class ChessClient(msgclient.Client):
         self.depthBestScore = None
         self.moveScores = []
         self.searchTimer = None
+        self.queryThread = None
+        self.cancelQueries = False
 
     def start(self):
         super().start()
@@ -101,7 +103,8 @@ class ChessClient(msgclient.Client):
         update = False
         while state := self.get("state"):
             self.state = state
-            self.put("command", ffi.new("Command *", {'tag': lib.Command_Query, 'contents': {'Query': {'rid': 0, 'depth': 1, 'getMoves': True}}})[0])
+            print("Got state update")
+            self.put("command", ffi.new("Command *", {'tag': lib.Command_Query, 'contents': {'Query': {'rid': 0, 'depth': 1, 'resetAlpha': True, 'getMoves': True}}})[0])
             #update = True  # No need to update when state is recieved, as there will be an update for moves/outcome
         while move := self.get("moves"):
             if move.tag == lib.MoveResponse_NextMove:
@@ -124,6 +127,9 @@ class ChessClient(msgclient.Client):
                 print("Ignoring post-cancellation search result")
             elif searchResult.outcome.tag == lib.Outcome_Invalid:
                 print("Search depth out of bounds")
+                self.searchTimer.cancel()
+                self.searchTimer = None
+                self.sendSearchMove()
             else:
                 score = -searchResult.score
                 move = self.moves[searchResult.rid - 1]
@@ -133,18 +139,16 @@ class ChessClient(msgclient.Client):
                     self.depthBestScore = score
                     self.depthBestMove = move
 
-                if searchResult.rid == len(self.moves):
+                if self.queryThread is not None and searchResult.rid == len(self.moves):
+                    print("Got all move results")
+                    self.queryThread.join()
+                    self.queryThread = None
                     self.bestMove = self.depthBestMove
                     print("Best move for depth", self.depth, "is", strMove(self.state, self.bestMove), self.depthBestScore)
-                    self.depthBestMove = None
-                    self.depthBestScore = None
                     self.depth += 1
                     self.moves = [m for _, m in sorted(zip(self.moveScores, self.moves), reverse=True)]
-                    self.moveScores = []
                     print("Deepening to depth", self.depth)
-                    self.requestSearchMove(0)
-                else:
-                    self.requestSearchMove(searchResult.rid)
+                    self.startDepthSearch()
 
         if update:
             self.callback(self.event + strOutcome(self.outcome))
@@ -152,14 +156,37 @@ class ChessClient(msgclient.Client):
     def startSearch(self):
         if self.searchTimer is None:
             print("Getting search move for", ffi.string(ffi.cast('enum Color_tag', self.state.turn.tag)))
-            self.depth = 6
+            self.depth = 2
             self.bestMove = None
-            self.depthBestMove = None
-            self.depthBestScore = None
-            self.moveScores = []
-            self.requestSearchMove(0)
+            self.startDepthSearch()
             self.searchTimer = threading.Timer(self.timeout, self.sendSearchMove)
             self.searchTimer.start()
+
+    def startDepthSearch(self):
+        self.queryThread = threading.Thread(target=self.sendQueries)
+        self.queryThread.start()
+
+    def sendQueries(self):
+        self.depthBestMove = None
+        self.depthBestScore = None
+        self.moveScores = []
+        self.cancelQueries = False
+
+        for i, move in enumerate(self.moves):
+            if self.cancelQueries:
+                break
+            self.put("command", ffi.new("Command *", {
+                'tag': lib.Command_Query,
+                'contents': {
+                    'Query': {
+                        'rid': i + 1,
+                        'move': {'tag': lib.Maybe_Move_Valid, 'contents': {'Valid': move}},
+                        'depth': self.depth - 1,
+                        'resetAlpha': i == 0,
+                        'getMoves': False
+                    }
+                }
+            })[0])
 
     def sendSearchMove(self):
         self.searchTimer = None
@@ -169,8 +196,8 @@ class ChessClient(msgclient.Client):
             self.startSearch()  # Retry
         else:
             print("Sending best move")
+            self.cancelSearch()
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.bestMove}})[0])
-            self.updateState()
             self.event = strMove(self.state, self.bestMove)
             self.bestMove = None
             self.outcome = None
@@ -180,23 +207,12 @@ class ChessClient(msgclient.Client):
         if self.searchTimer is not None:
             self.searchTimer.cancel()
             self.searchTimer = None
+        self.cancelQueries = True
+        self.queryThread.join()
+        self.queryThread = None
 
     def updateState(self):
         self.put("command", ffi.new("Command *", {'tag': lib.Command_GetState})[0])
-
-    def requestSearchMove(self, i):
-        self.put("command", ffi.new("Command *", {
-            'tag': lib.Command_Query,
-            'contents': {
-                'Query': {
-                    'rid': i + 1,
-                    'move': {'tag': lib.Maybe_Move_Valid, 'contents': {'Valid': self.moves[i]}},
-                    'depth': self.depth - 1,
-                    'beta': {'tag': lib.Maybe_int8_Invalid} if self.depthBestScore is None else {'tag': lib.Maybe_int8_Valid, 'contents': {'Valid': -self.depthBestScore}},
-                    'getMoves': False
-                }
-            }
-        })[0])
 
     def jsonStatus(self):
         if self.state:
@@ -211,7 +227,6 @@ class ChessClient(msgclient.Client):
     def move(self, i):
         if (self.state.turn.tag == lib.Color_Black and not self.blackAI) or (self.state.turn.tag == lib.Color_White and not self.whiteAI):
             self.put("command", ffi.new("Command *", {'tag': lib.Command_Move, 'contents': {'Move': self.moves[i]}})[0])
-            self.updateState()
             self.event = strMove(self.state, self.moves[i])
             self.outcome = None
 

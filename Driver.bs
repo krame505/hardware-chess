@@ -14,18 +14,10 @@ import FIFO
 
 data Command = GetState
              | Move Move
-             | Query { rid :: RequestId; move :: Maybe Move; depth :: Depth; alpha :: Maybe Score; beta :: Maybe Score; getMoves :: Bool }
+             | Query { rid :: RequestId; move :: Maybe Move; depth :: Depth; resetAlpha :: Bool; getMoves :: Bool }
              | CancelSearch
              | Reset
   deriving (Bits)
-
-struct MoveQuery =
-  rid :: RequestId
-  depth :: Depth
-  alpha :: Maybe Score
-  beta :: Maybe Score
-  getMoves :: Bool
- deriving (Bits)
 
 interface ChessMsgs =
   command :: Rx 2 2 Command
@@ -38,6 +30,10 @@ interface ChessDriver =
   rxData :: Put (Bit 8)
 
   status :: Bit 16  {-# always_ready, always_enabled #-}
+
+data Task = MoveUpdate
+          | MoveQuery { rid :: RequestId; depth :: Depth; resetAlpha :: Bool; getMoves :: Bool }
+  deriving (Bits)
 
 {-# verilog mkChessDriver #-}
 mkChessDriver :: Module ChessDriver
@@ -56,53 +52,81 @@ _mkChessDriver = module
   msgMgr.txMsg <-> enc.msg
 
   state :: Reg State <- mkReg initialState
+  moveTasks :: FIFO (Move, Task) <- mkSizedFIFO moveQueueSize
   moveUpdate <- mkMoveUpdate
-  moveQueries :: FIFO (Maybe MoveQuery) <- mkSizedFIFO 4
+  tasks :: FIFO Task <- mkFIFO
+  alpha :: Reg Score <- mkReg minScore
   searchCore <- mkParallelSearchCore
 
   searchCore.moves <-> toPut msgMgr.fifos.moves
-  searchCore.server.response <-> toPut msgMgr.fifos.searchResult
 
-  rules
-    when not moveUpdate.hasRequest
-      rules
-        "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
-          $display "handle_GetState"
-          msgMgr.fifos.state.enq state
-          msgMgr.fifos.command.deq
-        "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
-          $display "handle_Move"
-          moveUpdate.enq state m
-          moveQueries.enq Nothing
-          searchCore.clear
-          msgMgr.fifos.command.deq
-        "handle_Query": when Query {rid; move; depth; alpha; beta; getMoves;} <- msgMgr.fifos.command.first ==> do
-          $display "handle_Query"
-          case move of
-            Just m -> do
-              moveUpdate.enq state m
-              moveQueries.enq $ Just $ MoveQuery {rid=rid; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
-            Nothing ->
-              searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
-          msgMgr.fifos.command.deq
-        "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
-          $display "handle_CancelSearch"
-          searchCore.clear
-          msgMgr.fifos.command.deq
-        "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
-          $display "handle_Reset"
-          state := initialState
-          searchCore.clear
-          msgMgr.fifos.command.deq
+  let clear = do
+        moveTasks.clear
+        moveUpdate.clear
+        tasks.clear
+        searchCore.clear
 
-    "handle_move_update": when moveUpdate.hasRequest ==> do
-      $display "handle_move_update"
-      case moveQueries.first of
-        Nothing -> state := moveUpdate.nextState
-        Just (MoveQuery {rid; depth; alpha; beta; getMoves}) ->
-          searchCore.server.request.put $ defaultValue {rid=rid; state=moveUpdate.nextState; depth=depth; alpha=alpha; beta=beta; getMoves=getMoves;}
-      moveUpdate.deq
-      moveQueries.deq
+      resultRule =
+        rules
+          "handle_search_result": when True ==> do
+            result <- searchCore.server.response.get
+            $display "handle_search_result " (cshow result)
+            msgMgr.fifos.searchResult.enq result
+            if negate result.score > alpha
+              then alpha := negate result.score
+              else noAction
+
+      commandRules =
+        rules
+          "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
+            $display "handle_GetState"
+            msgMgr.fifos.state.enq state
+            msgMgr.fifos.command.deq
+          "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
+            $display "handle_Move"
+            moveTasks.enq (m, MoveUpdate)
+            msgMgr.fifos.command.deq
+          "handle_direct_Query": when Query {rid; move=Nothing; depth; resetAlpha=_; getMoves;} <- msgMgr.fifos.command.first ==> do
+            $display "handle_direct_Query"
+            searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; getMoves=getMoves;}
+            msgMgr.fifos.command.deq
+          "handle_move_Query": when Query {rid; move=Just m; depth; resetAlpha; getMoves;} <- msgMgr.fifos.command.first ==> do
+            $display "handle_Query"
+            moveTasks.enq (m, MoveQuery {rid=rid; depth=depth; resetAlpha=resetAlpha; getMoves=getMoves;})
+            msgMgr.fifos.command.deq
+          "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
+            $display "handle_CancelSearch"
+            clear
+            msgMgr.fifos.command.deq
+          "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
+            $display "handle_Reset"
+            state := initialState
+            clear
+            msgMgr.fifos.command.deq
+
+          "put_move_update": when (m, t) <- moveTasks.first ==> do
+            $display "put_move_update"
+            moveUpdate.enq state m
+            tasks.enq t
+            moveTasks.deq
+
+      moveUpdateRule =
+        rules
+          "handle_move_update": when True ==> do
+            $display "handle_move_update " (cshow tasks.first)
+            case tasks.first of
+              MoveUpdate -> do
+                state := moveUpdate.nextState
+                msgMgr.fifos.state.enq moveUpdate.nextState
+              MoveQuery {rid; depth; resetAlpha=False; getMoves} ->
+                searchCore.server.request.put $ defaultValue {rid=rid; state=moveUpdate.nextState; depth=depth; beta=Just $ negate alpha; getMoves=getMoves;}
+              MoveQuery {rid; depth; resetAlpha=True; getMoves} -> do
+                alpha := minScore
+                searchCore.server.request.put $ defaultValue {rid=rid; state=moveUpdate.nextState; depth=depth; getMoves=getMoves;}
+            moveUpdate.deq
+            tasks.deq
+
+  addRules $ resultRule <+ commandRules <+ moveUpdateRule
 
   interface
     txData = enc.byte
