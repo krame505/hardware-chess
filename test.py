@@ -86,7 +86,7 @@ def optimize(client, config, trials):
             config = newConfig
         print("Best config", config)
 
-initialConfig = {'centerControlValue': 4, 'extendedCenterControlValue': 2, 'castleValue': 12, 'pawnStructureValue': 2}
+initialConfig = {'centerControlValue': 4, 'extendedCenterControlValue': 2, 'castleValue': 12, 'pawnStructureValue': 1}
 depth = 7
 trials = 50
 
