@@ -3,11 +3,13 @@ package SimTop where
 import Driver
 #ifdef TEST
 import TestDriver
+#else
+import GameDriver
 #endif
 import GetPut
 import PTY
 
-mkDriver :: Module ChessDriver
+mkDriver :: Module Driver
 #ifdef TEST
 mkDriver = mkChessTestDriver
 #else

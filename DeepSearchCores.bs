@@ -1,0 +1,25 @@
+package DeepSearchCores where
+
+import SearchCore
+import DefaultHeuristic
+import Vector
+
+{-# verilog mkDeepSingleSearchCore #-}
+mkDeepSingleSearchCore :: Module (SearchCore Config 14)
+mkDeepSingleSearchCore = mkSearchCore defaultHeuristic nil
+
+{-# verilog mkDeepParallelSearchCore #-}
+mkDeepParallelSearchCore :: Module (SearchCore Config 15)
+mkDeepParallelSearchCore = module
+  worker1 <- mkDeepSingleSearchCore
+  worker2 <- mkDeepSingleSearchCore
+  main <- mkSearchCore defaultHeuristic $ worker1 :> worker2 :> nil
+
+  interface
+    server = main.server
+    moves = main.moves
+    clear = main.clear
+    status =
+      ((split main.status).fst :: Bit 8) ++
+      ((split ((split worker1.status).fst :: Bit 8)).snd :: Bit 4) ++
+      ((split ((split worker2.status).fst :: Bit 8)).snd :: Bit 4)

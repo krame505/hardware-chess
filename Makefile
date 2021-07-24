@@ -15,7 +15,7 @@ else ifeq ($(CONF), test)
   override BSCFLAGS += -Xcpp -DTEST
 endif
 
-all: rtl ffi sim vsim
+all: rtl sim ffi # vsim
 
 .contrib:
 	$(MAKE) MAKEOVERRIDES= -C $(BSCCONTRIB)/Libraries/GenC install
@@ -30,7 +30,7 @@ $(BUILDDIR)/%.bo: %.bs .contrib | $(BUILDDIR)
 	bsc $(BSCFLAGS) -verilog -elab $<
 
 ifeq ($(CONF), rel)
-common: $(BUILDDIR)/Driver.bo
+common: $(BUILDDIR)/GameDriver.bo
 else ifeq ($(CONF), test)
 common: $(BUILDDIR)/TestDriver.bo
 endif
@@ -43,12 +43,11 @@ sim: common
 	bsc $(BSCFLAGS) -sim SimTop.bs
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
 
-vsim: common
-	bsc $(BSCFLAGS) -verilog VSimTop.bs
-	bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
-
-ffi: rtl
+ffi: common
 	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py $(LIBNAME)
+
+vsim: $(BUILDDIR)/VSimTop.bo
+	bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
 
 depends.mk: | $(BUILDDIR)
 	bluetcl -exec makedepend $(BSCFLAGS) "*.bs*" > depends.mk

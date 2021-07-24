@@ -1,10 +1,10 @@
 package TestDriver where
 
+import Driver
 import Chess
 import SearchCore
-import DefaultSearchCores
+import ShallowSearchCores
 import DefaultHeuristic
-import Driver
 import GenCMsg
 import GenCRepr
 import GetPut
@@ -35,11 +35,11 @@ interface ChessTestMsgs =
   result :: Tx 8 8 TrialResult
 
 {-# verilog mkChessTestDriver #-}
-mkChessTestDriver :: Module ChessDriver
+mkChessTestDriver :: Module Driver
 mkChessTestDriver = _mkChessTestDriver
 
 -- Seperate due to the context
-_mkChessTestDriver :: (GenCMsg ChessTestMsgs rxBytes txBytes) => Module ChessDriver
+_mkChessTestDriver :: (GenCMsg ChessTestMsgs rxBytes txBytes) => Module Driver
 _mkChessTestDriver = module
   writeCMsgDecls "chess_test" (_ :: ChessTestMsgs)
 
@@ -53,7 +53,7 @@ _mkChessTestDriver = module
   stateUpdates :: FIFOF State <- mkFIFOF
   state :: Reg State <- mkReg initialState
   moveUpdate <- mkMoveUpdate
-  searchCore <- mkParallelSearchCore
+  searchCore <- mkShallowParallelSearchCore
 
   whiteConfig :: Reg Config <- mkReg defaultValue
   blackConfig :: Reg Config <- mkReg defaultValue

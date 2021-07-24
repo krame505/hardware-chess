@@ -2,7 +2,7 @@ package VSimTop where
 
 import Chess
 import SearchCore
-import DefaultSearchCores
+import ShallowSearchCores
 import CShow
 import GetPut
 import ClientServer
@@ -13,7 +13,7 @@ searchDepth = 3
 {-# verilog sysChessVSim #-}
 sysChessVSim :: Module Empty
 sysChessVSim = module
-  searchCore <- mkParallelSearchCore
+  searchCore <- mkShallowParallelSearchCore
   moveUpdate <- mkMoveUpdate
   state <- mkReg initialState
 

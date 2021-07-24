@@ -1,0 +1,84 @@
+package GameDriver where
+
+import Driver
+import Chess
+import SearchCore
+import DeepSearchCores
+import GenCMsg
+import GenCRepr
+import GetPut
+import ClientServer
+import Connectable
+import COBS
+import CShow
+
+data Command = GetState
+             | Move Move
+             | Query { rid :: RequestId; depth :: Depth; getMoves :: Bool }
+             | CancelSearch
+             | Reset
+  deriving (Bits)
+
+interface ChessMsgs =
+  command :: Rx 2 2 Command
+  state :: Tx 2 2 State
+  moves :: Tx 64 8 MoveResponse
+  searchResult :: Tx 2 2 SearchResult
+
+{-# verilog mkChessDriver #-}
+mkChessDriver :: Module Driver
+mkChessDriver = _mkChessDriver
+
+-- Seperate due to the context
+_mkChessDriver :: (GenCMsg ChessMsgs rxBytes txBytes) => Module Driver
+_mkChessDriver = module
+  writeCMsgDecls "chess" (_ :: ChessMsgs)
+
+  enc :: COBSEncoder txBytes <- mkCOBSEncoder
+  dec :: COBSDecoder rxBytes <- mkCOBSDecoder
+  msgMgr :: MsgManager ChessMsgs rxBytes txBytes <- mkMsgManager
+
+  dec.msg <-> dropSize msgMgr.rxMsg
+  msgMgr.txMsg <-> enc.msg
+
+  state :: Reg State <- mkReg initialState
+  moveUpdate <- mkMoveUpdate
+  searchCore <- mkDeepParallelSearchCore
+
+  searchCore.moves <-> toPut msgMgr.fifos.moves
+  searchCore.server.response <-> toPut msgMgr.fifos.searchResult
+
+  rules
+    when not moveUpdate.hasRequest
+      rules
+        "handle_GetState": when GetState <- msgMgr.fifos.command.first ==> do
+          $display "handle_GetState"
+          msgMgr.fifos.state.enq state
+          msgMgr.fifos.command.deq
+        "handle_Move": when Move m <- msgMgr.fifos.command.first ==> do
+          $display "handle_Move"
+          moveUpdate.enq state m
+          msgMgr.fifos.command.deq
+        "handle_Query": when Query {rid; depth; getMoves;} <- msgMgr.fifos.command.first ==> do
+          $display "handle_Query"
+          searchCore.server.request.put $ defaultValue {rid=rid; state=state; depth=depth; getMoves=getMoves;}
+          msgMgr.fifos.command.deq
+        "handle_CancelSearch": when CancelSearch <- msgMgr.fifos.command.first ==> do
+          $display "handle_CancelSearch"
+          searchCore.clear
+          msgMgr.fifos.command.deq
+        "handle_Reset": when Reset <- msgMgr.fifos.command.first ==> do
+          $display "handle_Reset"
+          state := initialState
+          searchCore.clear
+          msgMgr.fifos.command.deq
+
+    "update_state": when moveUpdate.hasRequest ==> do
+      $display "update_state"
+      state := moveUpdate.nextState
+      moveUpdate.deq
+
+  interface
+    txData = enc.byte
+    rxData = dec.byte
+    status = searchCore.status
