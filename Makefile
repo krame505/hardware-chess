@@ -1,5 +1,6 @@
 BSCCONTRIB ?= $(abspath ../bsc-contrib)
 BUILDDIR ?= bin
+PYTHON ?= python3
 override BSCFLAGS += -p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCMsg:$(BSCCONTRIB)/inst/lib/Libraries/FPGA/Misc:$(BSCCONTRIB)/inst/lib/Libraries/COBS:+
 override BSCFLAGS += -bdir $(BUILDDIR) -fdir $(BUILDDIR) -simdir $(BUILDDIR) -cpp
 override BSCFLAGS += +RTS -K1G -RTS -steps-warn-interval 1000000
@@ -44,7 +45,7 @@ sim: common
 	bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
 
 ffi: common
-	cd $(BUILDDIR) && python3 $(BSCCONTRIB)/Libraries/GenC/build_ffi.py $(LIBNAME)
+	cd $(BUILDDIR) && $(PYTHON) $(BSCCONTRIB)/Libraries/GenC/build_ffi.py $(LIBNAME)
 
 vsim: $(BUILDDIR)/VSimTop.bo
 	bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
