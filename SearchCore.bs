@@ -10,7 +10,7 @@ import qualified List
 import Vector
 import CShow
 
-type Score = Int 8
+type Score = Int 11
 type Heuristic c = c -> State -> Score
 
 type RequestId = UInt 8

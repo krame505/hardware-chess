@@ -5,19 +5,26 @@ import BuildVector
 import Chess
 import SearchCore
 
+type ScoreWeight = UInt 4
+
+weightScore :: Score -> ScoreWeight -> Score
+weightScore s w = s * zeroExtend (unpack $ pack w)
+
 struct Config =
-  centerControlValue :: Score
-  extendedCenterControlValue :: Score
-  castleValue :: Score
-  pawnStructureValue :: Score
+  materialValue :: ScoreWeight
+  centerControlValue :: ScoreWeight
+  extendedCenterControlValue :: ScoreWeight
+  castleValue :: ScoreWeight
+  pawnStructureValue :: ScoreWeight
  deriving (Bits)
 
 instance DefaultValue Config where
   defaultValue =
     interface Config
+      materialValue = 5
       centerControlValue = 2
       extendedCenterControlValue = 1
-      castleValue = 10
+      castleValue = 9
       pawnStructureValue = 1
 
 pieceValue :: PieceKind -> Score
@@ -56,21 +63,26 @@ pawnStructureScore board turn pos =
 
 defaultHeuristic :: Heuristic Config
 defaultHeuristic config state =
-  let squareScore Nothing = 0
+  let squareScore :: Maybe Piece -> Score
+      squareScore Nothing = 0
       squareScore (Just piece) =
         (if piece.color == state.turn then id else negate) $ pieceValue piece.kind
 
+      controlScore :: ScoreWeight -> Position -> Score
       controlScore score pos =
         let centerThreats = numThreats state.board (otherColor state.turn) pos + (if isOccupied state.board state.turn pos then 1 else 0)
             centerOtherThreats = numThreats state.board state.turn pos + (if isOccupied state.board (otherColor state.turn) pos then 1 else 0)
-        in if centerThreats > centerOtherThreats then score
-           else if centerThreats < centerOtherThreats then negate score
+        in if centerThreats > centerOtherThreats then unpack $ pack $ extend score
+           else if centerThreats < centerOtherThreats then negate $ unpack $ pack $ extend score
            else 0
+
+      castleScore = unpack $ pack $ extend config.castleValue
       whitePawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board White) whitePawnPositions
       blackPawnStructureScore = foldr1 (+) $ map (pawnStructureScore state.board Black) blackPawnPositions
-  in (foldr1 (+) $ map squareScore $ concat state.board) +
-     ((foldr1 (+) $ map (controlScore config.centerControlValue) centerPositions) +
-      (foldr1 (+) $ map (controlScore config.extendedCenterControlValue) extendedCenterPositions) +
-      (if state.whiteHist.castled then if state.turn == White then config.castleValue else negate config.castleValue else 0) +
-      (if state.blackHist.castled then if state.turn == Black then config.castleValue else negate config.castleValue else 0) +
-      (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) * config.pawnStructureValue) / 4
+
+  in (foldr1 (+) $ map squareScore $ concat state.board) `weightScore` config.materialValue +
+     (foldr1 (+) $ map (controlScore config.centerControlValue) centerPositions) +
+     (foldr1 (+) $ map (controlScore config.extendedCenterControlValue) extendedCenterPositions) +
+     (if state.whiteHist.castled then if state.turn == White then castleScore else negate castleScore else 0) +
+     (if state.blackHist.castled then if state.turn == Black then castleScore else negate castleScore else 0) +
+     (if state.turn == White then id else negate) (whitePawnStructureScore - blackPawnStructureScore) `weightScore` config.pawnStructureValue
