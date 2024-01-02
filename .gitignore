@@ -5,6 +5,7 @@
 *.out
 *.sched
 .contrib
+.*_ffi
 depends.mk
 bin/
 __pycache__/

@@ -55,3 +55,5 @@ The design can also be run in hardware on an FPGA.  Vivado constraint and projec
 ```
 ./server.py /dev/ttyUSB1
 ```
+
+The Makefile does also contain targets for synthesis with [f4pga](https://f4pga.readthedocs.io/en/latest/), however this does not work at present.
