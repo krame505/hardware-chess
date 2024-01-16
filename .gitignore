@@ -7,7 +7,7 @@
 .contrib
 .*_ffi
 depends.mk
-bin/
+build/
 __pycache__/
 *.cache/
 *.hw/
