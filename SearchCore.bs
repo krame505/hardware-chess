@@ -1,6 +1,8 @@
 package SearchCore where
 
-import Chess
+import ChessState
+import MoveEval
+import MoveUpdate
 import FIFO
 import FIFOF
 import GetPut

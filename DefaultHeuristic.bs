@@ -2,7 +2,8 @@ package DefaultHeuristic where
 
 import Vector
 import BuildVector
-import Chess
+import ChessState
+import MoveEval
 import SearchCore
 
 type ScoreWeight = UInt 4

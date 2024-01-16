@@ -1,0 +1,149 @@
+package MoveUpdate where
+
+import Vector
+import ChessState
+import FIFOF
+
+interface MoveUpdate =
+  enq :: State -> Move -> Action
+  nextMove :: Move
+  nextState :: State
+  deq :: Action
+  clear :: Action
+  hasRequest :: Bool
+  ready :: Bool
+
+{-# verilog mkMoveUpdate #-}
+mkMoveUpdate :: Module MoveUpdate
+mkMoveUpdate = module
+  requests :: FIFOF (State, Move) <- mkFIFOF
+  let (state, move) = requests.first
+
+  responses :: FIFOF (State, Move) <- mkFIFOF
+
+  fromPos :: Wire Position <- mkWire
+  rules
+    "from_move": when Move {from=from;} <- move ==> fromPos := from
+    "from_en_passant": when EnPassant {from=from;} <- move ==> fromPos := from
+    "from_promote": when Promote {from=from;} <- move ==> fromPos := from
+
+  fromPiece :: Wire Piece <- mkWire
+  rules
+    "fromPiece": when Just piece <- selectPos state.board fromPos ==> fromPiece := piece
+
+  updates :: Vector 4 (Wire (Maybe (Position, Maybe Piece))) <- replicateM mkWire
+  results :: Vector 4 (Wire Board) <- replicateM mkWire
+  addRules $ joinRules $ (genWith $ \ i ->
+      let board = if i == 0 then state.board else (results !! (i - 1))._read
+      in
+        rules
+          ("update_" +++ integerToString i): when Just (pos, piece) <- (updates !! i)._read ==>
+            results !! i := updatePos board pos piece
+          ("no_update_" +++ integerToString i): when Nothing <- (updates !! i)._read ==>
+            results !! i := board
+    ) :: Vector 4 Rules
+
+  newWhiteHist :: Wire PlayerHistory <- mkWire
+  newBlackHist :: Wire PlayerHistory <- mkWire
+  newLastProgressMove :: Wire (UInt 6) <- mkWire
+
+  rules
+    "handle_move": when Move {from; to;} <- move ==> do
+      updates !! 0 := Just (from, Nothing)
+      updates !! 1 := Just (to, Just fromPiece)
+      updates !! 2 := Nothing
+      updates !! 3 := Nothing
+      newWhiteHist :=
+        interface PlayerHistory
+          pawnMoved2 =
+            if fromPiece == Piece {color=White; kind=Pawn;}
+            then if from.rank == 6 && to.rank == 4
+              then Just from.file
+              else Nothing
+            else Nothing
+          kingMoved = state.whiteHist.kingMoved || fromPiece == Piece {color=White; kind=King;}
+          kRookMoved = state.whiteHist.kRookMoved || (fromPiece == Piece {color=White; kind=Rook;} && from == Position {rank=7; file=7})
+          qRookMoved = state.whiteHist.qRookMoved || (fromPiece == Piece {color=White; kind=Rook;} && from == Position {rank=7; file=0})
+          castled = state.whiteHist.castled
+      newBlackHist :=
+        interface PlayerHistory
+          pawnMoved2 =
+            if fromPiece == Piece {color=Black; kind=Pawn;}
+            then if from.rank == 1 && to.rank == 3
+              then Just from.file
+              else Nothing
+            else Nothing
+          kingMoved = state.blackHist.kingMoved || fromPiece == Piece {color=Black; kind=King;}
+          kRookMoved = state.blackHist.kRookMoved || (fromPiece == Piece {color=Black; kind=Rook;} && from == Position {rank=0; file=7})
+          qRookMoved = state.blackHist.qRookMoved || (fromPiece == Piece {color=Black; kind=Rook;} && from == Position {rank=0; file=0})
+          castled = state.blackHist.castled
+      newLastProgressMove :=
+        case fromPiece of
+          Piece {kind=Pawn;} -> 0
+          _ -> if isJust $ selectPos state.board to then 0 else state.lastProgressMove + 1
+
+    "handle_en_passant": when EnPassant {from; to;} <- move ==> do
+      updates !! 0 := Just (from, Nothing)
+      updates !! 1 := Just (to, Just fromPiece)
+      updates !! 2 := Just (Position {rank=from.rank; file=to.file;}, Nothing)
+      updates !! 3 := Nothing
+      newWhiteHist := state.whiteHist { pawnMoved2 = Nothing; }
+      newBlackHist := state.blackHist { pawnMoved2 = Nothing; }
+      newLastProgressMove := 0
+
+    "handle_promote": when Promote {kind=newKind; from; to;} <- move ==> do
+      updates !! 0 := Just (from, Nothing)
+      updates !! 1 := Just (to, Just $ Piece {color=state.turn; kind=newKind;})
+      updates !! 2 := Nothing
+      updates !! 3 := Nothing
+      newWhiteHist := state.whiteHist { pawnMoved2 = Nothing; }
+      newBlackHist := state.blackHist { pawnMoved2 = Nothing; }
+      newLastProgressMove := 0
+
+    "handle_castle": when Castle {kingSide} <- move ==> do
+      let rank = if state.turn == White then 7 else 0
+          kingFile = 4
+          rookFile = if kingSide then 7 else 0
+          newKingFile = if kingSide then 6 else 2
+          newRookFile = if kingSide then 5 else 3
+      updates !! 0 := Just (Position {rank=rank; file=kingFile;}, Nothing)
+      updates !! 1 := Just (Position {rank=rank; file=rookFile;}, Nothing)
+      updates !! 2 := Just (Position {rank=rank; file=newKingFile;}, Just $ Piece {color=state.turn; kind=King})
+      updates !! 3 := Just (Position {rank=rank; file=newRookFile;}, Just $ Piece {color=state.turn; kind=Rook})
+      newWhiteHist :=
+        interface PlayerHistory
+          pawnMoved2 = Nothing
+          kingMoved = state.whiteHist.kingMoved || state.turn == White
+          kRookMoved = state.whiteHist.kRookMoved || (state.turn == White && kingSide)
+          qRookMoved = state.whiteHist.qRookMoved || (state.turn == White && not kingSide)
+          castled = state.turn == White
+      newBlackHist :=
+        interface PlayerHistory
+          pawnMoved2 = Nothing
+          kingMoved = state.blackHist.kingMoved || state.turn == Black
+          kRookMoved = state.blackHist.kRookMoved || (state.turn == Black && kingSide)
+          qRookMoved = state.blackHist.qRookMoved || (state.turn == Black && not kingSide)
+          castled = state.turn == Black
+      newLastProgressMove := state.lastProgressMove + 1
+
+    "put_response": when True ==> do
+      responses.enq
+        (interface State
+           turn = otherColor state.turn
+           board = (results !! 3)._read
+           whiteHist = newWhiteHist
+           blackHist = newBlackHist
+           lastProgressMove = newLastProgressMove
+         , move)
+      requests.deq
+
+  interface
+    enq s m = requests.enq (s, m)
+    nextMove = responses.first.snd
+    nextState = responses.first.fst
+    deq = responses.deq
+    clear = do
+      requests.clear
+      responses.clear
+    hasRequest = requests.notEmpty || responses.notEmpty
+    ready = responses.notEmpty

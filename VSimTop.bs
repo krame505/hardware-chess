@@ -1,6 +1,7 @@
 package VSimTop where
 
-import Chess
+import ChessState
+import MoveUpdate
 import SearchCore
 import ShallowSearchCores
 import CShow

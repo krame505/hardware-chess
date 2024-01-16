@@ -1,7 +1,9 @@
 package TestDriver where
 
 import Driver
-import Chess
+import ChessState
+import MoveEval
+import MoveUpdate
 import SearchCore
 import ShallowSearchCores
 import DefaultHeuristic

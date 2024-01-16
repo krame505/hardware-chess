@@ -1,0 +1,119 @@
+package ChessState where
+
+import Vector
+import qualified List
+import GetPut
+import BuildVector
+import FIFO
+import FIFOF
+import GenCRepr
+import qualified State
+import CShow
+
+data PieceKind
+  = Pawn
+  | Knight
+  | Bishop
+  | Rook
+  | Queen
+  | King
+ deriving (Eq, Bits)
+
+data Color = White | Black
+ deriving (Eq, Bits)
+
+struct Piece =
+  color :: Color
+  kind :: PieceKind
+ deriving (Eq, Bits)
+
+type Board = Vector 8 (Vector 8 (Maybe Piece))
+
+struct Position =
+  rank :: UInt 3
+  file :: UInt 3
+ deriving (Eq, Bits)
+
+struct PlayerHistory =
+  pawnMoved2 :: Maybe (UInt 3)
+  kingMoved :: Bool
+  kRookMoved :: Bool
+  qRookMoved :: Bool
+  castled :: Bool
+ deriving (Eq, Bits)
+
+struct State =
+  turn :: Color
+  board :: Board
+  whiteHist :: PlayerHistory
+  blackHist :: PlayerHistory
+  lastProgressMove :: UInt 6
+ deriving (Eq, Bits)
+
+data Move
+  = Move { from :: Position; to :: Position }
+  | EnPassant { from :: Position; to :: Position }
+  | Promote { kind :: PieceKind; from :: Position; to :: Position }
+  | Castle {kingSide :: Bool}
+ deriving (Eq, Bits)
+
+-- Fixed-width representation of Maybe Piece used in serialization and the C interface.
+-- This exists to avoid an evaluator blowup caused by 64 variable-width Maybe Piece
+-- items in a row.
+struct MaybePiece =
+  occupied :: Bool
+  piece :: Piece
+ deriving (Bits)
+
+instance (GenCRepr MaybePiece n) => GenCRepr (Maybe Piece) n where
+  typeName _ = typeName (_ :: MaybePiece)
+
+  genCType _ = genCType (_ :: MaybePiece)
+  genCTypeDecl _ = genCTypeDecl (_ :: MaybePiece)
+
+  packBytes (Just p) = packBytes $ MaybePiece {occupied=True; piece=p;}
+  packBytes Nothing = packBytes $ MaybePiece {occupied=False; piece=_;}
+  genCPack _ = genCPack (_ :: MaybePiece)
+  genCPackDecl _ = genCPackDecl (_ :: MaybePiece)
+
+  unpackBytesS = do
+    mp <- unpackBytesS
+    return $ if mp.occupied then Just mp.piece else Nothing
+  genCUnpack _ = genCUnpack (_ :: MaybePiece)
+  genCUnpackDecl _ = genCUnpackDecl (_ :: MaybePiece)
+
+otherColor :: Color -> Color
+otherColor White = Black
+otherColor Black = White
+
+initialHist :: PlayerHistory
+initialHist = PlayerHistory {
+  pawnMoved2 = Nothing;
+  kingMoved = False;
+  kRookMoved = False;
+  qRookMoved = False;
+  castled = False;
+}
+
+initialState :: State
+initialState = State {
+  turn = White;
+  board = vec
+    (map (\ k -> Just (Piece {color=Black; kind=k;})) $ vec Rook Knight Bishop Queen King Bishop Knight Rook)
+    (replicate (Just (Piece {color=Black; kind=Pawn;})))
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate Nothing)
+    (replicate (Just (Piece {color=White; kind=Pawn;})))
+    (map (\ k -> Just (Piece {color=White; kind=k;})) $ vec Rook Knight Bishop Queen King Bishop Knight Rook);
+  whiteHist = initialHist;
+  blackHist = initialHist;
+  lastProgressMove = 0;
+}
+
+selectPos :: Board -> Position -> Maybe Piece
+selectPos b pos = select (select b pos.rank) pos.file
+
+updatePos :: Board -> Position -> Maybe Piece -> Board
+updatePos b pos p = update b pos.rank (update (select b pos.rank) pos.file p)
