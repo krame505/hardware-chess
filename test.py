@@ -2,7 +2,7 @@
 
 import sys
 sys.path.append("../bsc-contrib/Libraries/GenC/GenCMsg")
-sys.path.append("bin")
+sys.path.append("build")
 
 import msgclient
 from _chess_test import ffi, lib
