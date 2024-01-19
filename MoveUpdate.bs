@@ -32,16 +32,6 @@ mkMoveUpdate = module
     "fromPiece": when Just piece <- selectPos state.board fromPos ==> fromPiece := piece
 
   updates :: Vector 4 (Wire (Maybe (Position, Maybe Piece))) <- replicateM mkWire
-  results :: Vector 4 (Wire Board) <- replicateM mkWire
-  addRules $ joinRules $ (genWith $ \ i ->
-      let board = if i == 0 then state.board else (results !! (i - 1))._read
-      in
-        rules
-          ("update_" +++ integerToString i): when Just (pos, piece) <- (updates !! i)._read ==>
-            results !! i := updatePos board pos piece
-          ("no_update_" +++ integerToString i): when Nothing <- (updates !! i)._read ==>
-            results !! i := board
-    ) :: Vector 4 Rules
 
   newWhiteHist :: Wire PlayerHistory <- mkWire
   newBlackHist :: Wire PlayerHistory <- mkWire
@@ -130,7 +120,17 @@ mkMoveUpdate = module
       responses.enq
         (interface State
            turn = otherColor state.turn
-           board = (results !! 3)._read
+           board = genWith $ \ i -> genWith $ \ j ->
+             let rank = fromInteger i
+                 file = fromInteger j
+             in foldr
+               (\ u r -> 
+                  case readReg u of
+                    Just (p, n) when (p.rank == rank && p.file == file) -> n
+                    _ -> r
+               )
+               (selectPos state.board $ Position {rank = rank; file = file; })
+               updates
            whiteHist = newWhiteHist
            blackHist = newBlackHist
            lastProgressMove = newLastProgressMove
