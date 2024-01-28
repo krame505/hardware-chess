@@ -1,14 +1,7 @@
 package ChessState where
 
 import Vector
-import qualified List
-import GetPut
 import BuildVector
-import FIFO
-import FIFOF
-import GenCRepr
-import qualified State
-import CShow
 
 data PieceKind
   = Pawn
@@ -56,31 +49,6 @@ data Move
   | Promote { kind :: PieceKind; from :: Position; to :: Position }
   | Castle {kingSide :: Bool}
  deriving (Eq, Bits)
-
--- Fixed-width representation of Maybe Piece used in serialization and the C interface.
--- This exists to avoid an evaluator blowup caused by 64 variable-width Maybe Piece
--- items in a row.
-struct MaybePiece =
-  occupied :: Bool
-  piece :: Piece
- deriving (Bits)
-
-instance (GenCRepr MaybePiece n) => GenCRepr (Maybe Piece) n where
-  typeName _ = typeName (_ :: MaybePiece)
-
-  genCType _ = genCType (_ :: MaybePiece)
-  genCTypeDecl _ = genCTypeDecl (_ :: MaybePiece)
-
-  packBytes (Just p) = packBytes $ MaybePiece {occupied=True; piece=p;}
-  packBytes Nothing = packBytes $ MaybePiece {occupied=False; piece=_;}
-  genCPack _ = genCPack (_ :: MaybePiece)
-  genCPackDecl _ = genCPackDecl (_ :: MaybePiece)
-
-  unpackBytesS = do
-    mp <- unpackBytesS
-    return $ if mp.occupied then Just mp.piece else Nothing
-  genCUnpack _ = genCUnpack (_ :: MaybePiece)
-  genCUnpackDecl _ = genCUnpackDecl (_ :: MaybePiece)
 
 otherColor :: Color -> Color
 otherColor White = Black

@@ -71,10 +71,10 @@ function update() {
           cell.className = "boardCell"
           cell.onclick = function () { handleSelect(pos) }
           square = state.board[rank][file]
-          if (square.occupied) {
-            cell.innerHTML = blackPieces[square.piece.kind]// + "\uFE0E"
+          if (square.tag == 'Valid') {
+            cell.innerHTML = blackPieces[square.contents.kind]// + "\uFE0E"
             cell.style.color = 'transparent'
-            cell.style.textShadow = '0 0 0 ' + square.piece.color
+            cell.style.textShadow = '0 0 0 ' + square.contents.color
           }
         }
       }
@@ -107,7 +107,7 @@ function handleSelect(pos) {
     }
   }
   square = state.board[pos.rank][pos.file]
-  if (square.occupied && square.piece.color == state.turn && pos != selected) {
+  if (square.tag == 'Valid' && square.contents.color == state.turn && pos != selected) {
     selected = pos
     board.rows[pos.rank + 1].cells[pos.file + 1].style.backgroundColor = 'cyan'
     candidates = []

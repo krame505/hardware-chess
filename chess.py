@@ -53,12 +53,12 @@ def strMove(state, move):
         toPos = directMove.to
         fromSquare = state.board[fromPos.rank][fromPos.file]
         toSquare = state.board[toPos.rank][toPos.file]
-        assert fromSquare.occupied
-        assert fromSquare.piece.color.tag == state.turn.tag
-        capture = toSquare.occupied or move.tag == lib.Move_EnPassant
-        promo = strPiece(ffi.new("Piece *", {'color': fromSquare.piece.color, 'kind': directMove.kind})) if move.tag == lib.Move_Promote else ""
+        assert fromSquare.tag == lib.Maybe_Piece_Valid
+        assert fromSquare.contents.Valid.color.tag == state.turn.tag
+        capture = toSquare.tag == lib.Maybe_Piece_Valid or move.tag == lib.Move_EnPassant
+        promo = strPiece(ffi.new("Piece *", {'color': fromSquare.contents.Valid.color, 'kind': directMove.kind})) if move.tag == lib.Move_Promote else ""
         ep = " e.p." if move.tag == lib.Move_EnPassant else ""
-        return strPiece(fromSquare.piece) + strPosition(fromPos) + ("x" if capture else "-") + strPosition(toPos) + promo + ep
+        return strPiece(fromSquare.contents.Valid) + strPosition(fromPos) + ("x" if capture else "-") + strPosition(toPos) + promo + ep
     elif move.tag == lib.Move_Castle:
         return "0-0" if move.contents.Castle.kingSide else "0-0-0"
 
