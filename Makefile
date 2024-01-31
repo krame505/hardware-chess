@@ -6,7 +6,6 @@ override BSCFLAGS += -p $(BSCCONTRIB)/inst/lib/Libraries/GenC/GenCRepr:$(BSCCONT
 override BSCFLAGS += -bdir $(BUILDDIR) -vdir $(BUILDDIR) -fdir $(BUILDDIR) -simdir $(BUILDDIR) -cpp
 override BSCFLAGS += +RTS -K1G -RTS -steps-warn-interval 1000000
 
-TOP := mkTop
 XDC := Arty_Master.xdc
 
 # From f4pga-examples/common/common.mk:
@@ -19,17 +18,22 @@ CONF ?= rel
 
 ifeq ($(CONF), rel)
   $(info Building release config)
-  LIBNAME = chess
+  TOP := mkTop
+  SIMTOP := sysChessSim
+  LIBNAME := chess
 else ifeq ($(CONF), test)
   $(info Building test config)
-  LIBNAME = chess_test
-  override BSCFLAGS += -Xcpp -DTEST
+  TOP := mkTestTop
+  SIMTOP := sysChessTestSim
+  LIBNAME := chess_test
+else
+  $(error Invalid build config $(CONF))
 endif
 
 all: rtl sim ffi # vsim bitstream
 
 rtl: $(BUILDDIR)/$(TOP).v
-sim: sysChessSim.out
+sim: $(SIMTOP).out
 vsim: sysChessVSim.out
 ffi: .$(LIBNAME)_ffi
 
@@ -48,14 +52,11 @@ $(BUILDDIR)/%.bo: %.bs .contrib | $(BUILDDIR)
 $(BUILDDIR)/PTY.bo: PTY.bsv | $(BUILDDIR)
 	$(BSC)/inst/bin/bsc $(BSCFLAGS) -sim $<
 
-sysChessSim.out: $(BUILDDIR)/sysChessSim.ba pty.c
-	$(BSC)/inst/bin/bsc $(BSCFLAGS) -sim -e sysChessSim -o sysChessSim.out pty.c
+%.out: $(BUILDDIR)/%.ba pty.c
+	$(BSC)/inst/bin/bsc $(BSCFLAGS) -sim -e $* -o $@ pty.c
 
-sysChessVSim.out: $(BUILDDIR)/sysChessVSim.ba
-	$(BSC)/inst/bin/bsc $(BSCFLAGS) -verilog -e sysChessVSim -o sysChessVSim.out
-
-$(BUILDDIR)/chess.c $(BUILDDIR)/chess.h: $(BUILDDIR)/GameDriver.bo
-$(BUILDDIR)/chess_test.c $(BUILDDIR)/chess_test.h: $(BUILDDIR)/TestDriver.bo
+%VSim.out: $(BUILDDIR)/%VSim.ba
+	$(BSC)/inst/bin/bsc $(BSCFLAGS) -verilog -e $*VSim -o $@
 
 .%_ffi: $(BUILDDIR)/%.c $(BUILDDIR)/%.h
 	cd $(BUILDDIR) && $(PYTHON) $(BSCCONTRIB)/Libraries/GenC/build_ffi.py $*
@@ -92,12 +93,13 @@ download: ${BUILDDIR}/${TOP}.bit
 
 depends.mk: | $(BUILDDIR)
 	bluetcl -exec makedepend $(BSCFLAGS) "*.bs*" > depends.mk
-	for file in *.bs; do sed -n -e "s/^{-\# verilog \([[:alnum:]]\+\) \#-}/$(BUILDDIR)\/\1.v: $(BUILDDIR)\/$${file%.bs}.bo/p" $$file; done >> depends.mk
-	for file in *.bs; do sed -n -e "s/^{-\# verilog \([[:alnum:]]\+\) \#-}/$(BUILDDIR)\/\1.ba: $(BUILDDIR)\/$${file%.bs}.bo/p" $$file; done >> depends.mk
+	for file in *.bs; do sed -n -e "s/^{-\# verilog \([[:alnum:]_]\+\) \#-}/$(BUILDDIR)\/\1.v: $(BUILDDIR)\/$${file%.bs}.bo/p" $$file; done >> depends.mk
+	for file in *.bs; do sed -n -e "s/^{-\# verilog \([[:alnum:]_]\+\) \#-}/$(BUILDDIR)\/\1.ba: $(BUILDDIR)\/$${file%.bs}.bo/p" $$file; done >> depends.mk
+	for file in *.bs; do sed -n -e "s/^\s\+writeCMsgDecls \"\([[:alnum:]_]\+\)\".*/$(BUILDDIR)\/\1.c $(BUILDDIR)\/\1.h: $(BUILDDIR)\/$${file%.bs}.bo/p" $$file; done >> depends.mk
 
 include depends.mk
 
 clean:
 	rm -rf *~ *.o *.so *.out *.sched .contrib .*_ffi depends.mk $(BUILDDIR) __pycache__/
 
-.PHONY: all common rtl sim vsim ffi bitstream download clean
+.PHONY: all rtl sim vsim ffi bitstream download clean

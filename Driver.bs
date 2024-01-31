@@ -1,9 +1,83 @@
 package Driver where
 
+import RS232
+import PTY
 import GetPut
+import Connectable
+import Clocks
 
 interface Driver =
   txData :: Get (Bit 8)
   rxData :: Put (Bit 8)
 
   status :: Bit 16  {-# always_ready, always_enabled #-}
+
+
+interface Top =
+  tx :: Bit 1 {-# always_ready, always_enabled #-}
+  rx :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [rx] #-}
+  statusEnable :: Bit 1 -> Action {-# always_ready, always_enabled, prefix="", arg_names = [statusEnable] #-}
+  status :: Bit 16 {-# always_ready, always_enabled #-}
+
+clockFreq :: Integer
+clockFreq = 100000000
+
+clockDivisor :: Integer
+clockDivisor = 3
+
+baud :: Integer
+baud = 115200
+
+mkHwTop :: Module Driver -> Module Top
+mkHwTop mkDriver = module
+  clockDivider <- mkClockDivider clockDivisor
+  reset <- mkReset clockDivisor True clockDivider.slowClock
+  driver <- changeSpecialWires (Just clockDivider.slowClock) (Just reset.new_rst) Nothing mkDriver
+  driverTx <- mkConverter 2 driver.txData
+  driverRx <- mkConverter 2 driver.rxData
+
+  uart :: UART 8 <- mkUART 8 NONE STOP_1 (fromInteger $ clockFreq / (baud * 16))
+
+  -- Wait for first byte to be recieved before sending data
+  writeEnable <- mkReg False
+  rules
+    "tx": when writeEnable ==> do
+      c <- driverTx.get
+      uart.rx.put c
+
+    "rx": when True ==> do
+      c <- uart.tx.get
+      driverRx.put $ truncate $ pack c
+      writeEnable := True
+
+  driverStatus <- mkConverter 2 $ toGet driver.status
+  lastStatus :: Reg (Bit 16) <- mkReg 0
+  driverStatus <-> toPut lastStatus._write
+
+  statusEnableReg :: Reg (Bit 1) <- mkReg 1
+
+  interface
+    tx = uart.rs232.sout
+    rx = uart.rs232.sin
+    statusEnable = statusEnableReg._write
+    status = if statusEnableReg == 1 then lastStatus else 0
+
+
+mkSimTop :: Module Driver -> Module Empty
+mkSimTop mkDriver = module
+  driver <- mkDriver
+
+  -- Wait for first byte to be recieved before sending data
+  writeEnable <- mkReg False
+
+  rules
+    "tx": when writeEnable ==> do
+      c <- driver.txData.get
+      txData c
+
+    "rx": when True ==> do
+      c <- rxData
+      if c /= negate 1
+        then do driver.rxData.put $ truncate $ pack c
+                writeEnable := True
+        else noAction
