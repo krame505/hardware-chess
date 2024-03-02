@@ -90,7 +90,7 @@ _mkChessTestDriver = module
             rid := trialRid
             joinActions $ zipWith writeReg initMoves trialInitMoves
             trialRunning := True
-            numInitMoves := 2
+            numInitMoves := fromInteger (valueOf InitMoves)
             stateUpdates.enq initialState
             msgMgr.fifos.command.deq
 
@@ -150,3 +150,11 @@ _mkChessTestDriver = module
     txData = enc.byte
     rxData = dec.byte
     status = searchCore.status
+
+{-# verilog mkTestTop #-}
+mkTestTop :: Module Top
+mkTestTop = mkHwTop mkChessTestDriver
+
+{-# verilog sysChessTestSim #-}
+sysChessTestSim :: Module Empty
+sysChessTestSim = mkSimTop mkChessTestDriver

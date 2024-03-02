@@ -84,3 +84,11 @@ _mkChessDriver = module
     txData = enc.byte
     rxData = dec.byte
     status = searchCore.status
+
+{-# verilog mkTop #-}
+mkTop :: Module Top
+mkTop = mkHwTop mkChessDriver
+
+{-# verilog sysChessSim #-}
+sysChessSim :: Module Empty
+sysChessSim = mkSimTop mkChessDriver
